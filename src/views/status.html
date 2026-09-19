@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Threads Deleter</title>
+{{{refresh}}}
+{{{head}}}
+</head>
+<body>
+{{{rail}}}
+<main>
+  <header class="masthead">
+    {{{stateTag}}}
+    <h1>{{heading}}</h1>
+    <p>{{message}}</p>
+  </header>
+
+  {{{error}}}
+
+  <section class="panel">
+    <h2>This job</h2>
+
+    <p class="jobline"><strong>{{account}}</strong> <span>removing {{scope}}</span></p>
+
+    <div class="stats">{{{stats}}}</div>
+
+    <div class="allowance">
+      <div class="quota">
+        <span class="tag">Today&rsquo;s ration</span>
+        <span>{{quotaUsed}} of {{quotaTotal}} used</span>
+      </div>
+      <div class="meter" role="img" aria-label="{{quotaUsed}} of {{quotaTotal}} deletions used in the last 24 hours">
+        <i style="width: {{quotaPercent}}%"></i>
+      </div>
+      <p class="hint">{{quotaLeft}} left before the rolling 24-hour limit resets. Threads allows {{quotaTotal}} a day per account.</p>
+    </div>
+
+    {{{nextPass}}}
+
+    <p class="hint">{{hint}}</p>
+
+    {{{jobActions}}}
+  </section>
+
+  {{{previewList}}}
+
+  <footer class="tail">
+    <p class="footnote">Keep this page bookmarked. The link is the only way back to this job.</p>
+    {{{footerAction}}}
+  </footer>
+</main>
+
+<script>
+(function () {
+  var list = document.getElementById('preview');
+  if (!list) return;
+
+  var items = Array.prototype.slice.call(list.children);
+  var pager = document.getElementById('pager');
+  var label = document.getElementById('pageLabel');
+  var prev = document.getElementById('prev');
+  var next = document.getElementById('next');
+
+  // Roughly one screenful, so a long preview does not bury the controls below it.
+  var perPage = 12;
+  if (items.length <= perPage) return;
+
+  var pages = Math.ceil(items.length / perPage);
+  var page = 0;
+
+  function draw() {
+    var start = page * perPage;
+    var end = start + perPage;
+    items.forEach(function (li, i) { li.hidden = i < start || i >= end; });
+    label.textContent = 'Page ' + (page + 1) + ' of ' + pages;
+    prev.disabled = page === 0;
+    next.disabled = page === pages - 1;
+  }
+
+  prev.addEventListener('click', function () {
+    if (page > 0) { page -= 1; draw(); list.scrollIntoView({ block: 'start' }); }
+  });
+  next.addEventListener('click', function () {
+    if (page < pages - 1) { page += 1; draw(); list.scrollIntoView({ block: 'start' }); }
+  });
+
+  pager.hidden = false;
+  draw();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- The wdth axis has to be asked for by name; requesting weights alone ships
+     the static 100-width faces and every font-variation-settings below is
+     silently ignored. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62.5..125,100..900&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='4' y='2' fill='%2317201f'/><rect width='11' height='4' y='8' fill='%2317201f'/></svg>">
+<style>{{{styles}}}</style>
+<script>
+// Before first paint, so a chosen theme never flashes the other one.
+(function () {
+  try {
+    var saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch (e) { /* blocked storage just leaves the system preference in charge */ }
+})();
+</script>

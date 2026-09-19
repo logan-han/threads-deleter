@@ -1,0 +1,671 @@
+/* Redaction: the tool covers your own record, a fixed ration each day. */
+:root {
+  --paper: #e9eae4;
+  --card: #f4f5f1;
+  --ink: #17201f;
+  --ink-soft: #5b6664;
+  --rule: #d2d4cc;
+  --petrol: #12403f;
+  --petrol-hover: #0d3231;
+  --petrol-ink: #ffffff;
+  --ochre: #9a6f1c;
+  /* Ochre itself only clears 3.6:1 on the ochre wash, so labels on it use a
+     darker step. The two are never interchangeable. */
+  --ochre-ink: #7a5610;
+  --ochre-bg: #f0e4c8;
+  --ochre-track: #e3d5b4;
+  --oxblood: #8e2b20;
+  --oxblood-hover: #6f2118;
+  --oxblood-ink: #ffffff;
+  --bar: #17201f;
+  --focus: #12403f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #101615;
+    --card: #18201f;
+    --ink: #e6e8e4;
+    --ink-soft: #94a09d;
+    --rule: #2b3634;
+    --petrol: #7fb3ae;
+    --petrol-hover: #9ac6c1;
+    --petrol-ink: #0c1413;
+    --ochre: #d8a747;
+    --ochre-ink: #d8a747;
+    --ochre-bg: #33290f;
+    --ochre-track: #4a3c1a;
+    --oxblood: #e08074;
+    --oxblood-hover: #eca79e;
+    --oxblood-ink: #0c1413;
+    --bar: #e6e8e4;
+    --focus: #7fb3ae;
+  }
+}
+
+:root[data-theme='dark'] {
+  --paper: #101615;
+  --card: #18201f;
+  --ink: #e6e8e4;
+  --ink-soft: #94a09d;
+  --rule: #2b3634;
+  --petrol: #7fb3ae;
+  --petrol-hover: #9ac6c1;
+  --petrol-ink: #0c1413;
+  --ochre: #d8a747;
+  --ochre-ink: #d8a747;
+  --ochre-bg: #33290f;
+  --ochre-track: #4a3c1a;
+  --oxblood: #e08074;
+  --oxblood-hover: #eca79e;
+  --oxblood-ink: #0c1413;
+  --bar: #e6e8e4;
+  --focus: #7fb3ae;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  padding: 0 0 80px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Archivo, ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  font-variation-settings: 'wdth' 100;
+}
+
+main { max-width: 33rem; margin: 0 auto; padding: 52px 16px 0; }
+
+/* A list of matches earns more width than a form does. Everything else lines
+   up with it rather than sitting in a narrower column beside it. */
+main:has(.panel.wide) { max-width: 64rem; }
+/* Prose still wants a readable measure even on a wide page. */
+main:has(.panel.wide) > .masthead p { max-width: 34rem; }
+
+/* The rail: the status link is bookmarked and lands on a page whose heading is
+   a job state, so without this the app never names itself. */
+.rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 56px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.rail a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.rail svg.mark rect { fill: var(--ink); }
+.rail b {
+  font-size: 15px;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 106, 'wght' 700;
+  letter-spacing: -0.01em;
+}
+/* On the index the masthead already carries the name at 3rem. */
+body.home .rail b { display: none; }
+
+.theme {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+.theme:hover { background: var(--rule); }
+.theme .sun { display: none; }
+:root[data-theme='dark'] .theme .sun { display: block; }
+:root[data-theme='dark'] .theme .moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .theme .sun { display: block; }
+  :root:not([data-theme='light']) .theme .moon { display: none; }
+}
+
+/* Masthead: the one place the type goes wide and heavy. */
+.masthead h1 {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 3rem);
+  line-height: 0.95;
+  font-weight: 800;
+  font-variation-settings: 'wdth' 118, 'wght' 800;
+  letter-spacing: -0.02em;
+  text-transform: lowercase;
+}
+
+.masthead p {
+  margin: 14px 0 0;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  max-width: 28rem;
+}
+
+/* The state the job is in, above the heading that phrases it. */
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--petrol);
+}
+.state::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.state.waiting { color: var(--ochre-ink); }
+.state.stopped { color: var(--oxblood); }
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  padding: 26px 24px 28px;
+  margin-top: 30px;
+}
+
+.panel + .panel { margin-top: 18px; }
+
+h2 {
+  margin: 0 0 18px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 108, 'wght' 700;
+  letter-spacing: -0.01em;
+}
+
+p { margin: 0 0 16px; }
+p:last-child { margin-bottom: 0; }
+
+/* Small-caps label. Used above anything that needs naming without a heading. */
+.tag {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 7px;
+}
+
+.field { margin-bottom: 22px; }
+.field:last-of-type { margin-bottom: 0; }
+
+label { display: block; font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+.hint { display: block; color: var(--ink-soft); font-weight: 400; font-size: 0.86rem; margin-top: 3px; }
+
+input[type='text'], input[type='date'], select {
+  width: 100%;
+  padding: 11px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.check {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin-top: 18px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.check input { margin: 3px 0 0; flex: none; width: 17px; height: 17px; accent-color: var(--petrol); }
+
+/* Two choices that belong together read as one control, not two stray boxes. */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin-bottom: 8px;
+}
+.choices label {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  margin: 0;
+  padding: 12px 14px;
+  min-height: 44px;
+  background: var(--paper);
+  font-weight: 400;
+  cursor: pointer;
+}
+.choices input { margin: 0; flex: none; width: 17px; height: 17px; accent-color: var(--petrol); }
+
+/* What the filters add up to, in a sentence, before the irreversible tick. */
+.recap {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+.recap p { margin: 0; font-size: 1.02rem; line-height: 1.5; }
+.recap strong { color: var(--petrol); font-weight: 700; }
+
+/* The irreversible one is the only place oxblood appears. A rule across the
+   top rather than down the side: it reads as a line in a document, and the
+   label does the warning rather than the colour alone. */
+.grave {
+  border-top: 2px solid var(--oxblood);
+  padding-top: 14px;
+  margin-top: 22px;
+}
+.grave .tag { color: var(--oxblood); margin-bottom: 10px; }
+.grave .check { margin-top: 0; }
+.grave strong { color: var(--oxblood); }
+
+button {
+  font: inherit;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 104, 'wght' 700;
+  padding: 13px 22px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--petrol);
+  color: var(--petrol-ink);
+  cursor: pointer;
+}
+/* A real colour step, not opacity: a washed-out fill reads as disabled. */
+button:hover { background: var(--petrol-hover); }
+button.quiet {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+button.quiet:hover { background: transparent; border-color: var(--petrol); }
+/* Going live is the one button that cannot be taken back; it should not look
+   like the one that only connects an account. */
+button.danger { background: var(--oxblood); color: var(--oxblood-ink); }
+button.danger:hover { background: var(--oxblood-hover); }
+button:disabled, button:disabled:hover { opacity: 0.45; cursor: not-allowed; background: transparent; }
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+.actions form { margin: 0; }
+
+.jobline {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.jobline strong {
+  font-weight: 700;
+  font-variation-settings: 'wdth' 106, 'wght' 700;
+}
+.jobline span { color: var(--ink-soft); }
+
+/* A KPI row: the figures that actually changed, not every field. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  margin: 0 0 24px;
+}
+.stat { display: flex; flex-direction: column; gap: 1px; }
+.stat b {
+  font-size: 1.9rem;
+  font-weight: 800;
+  font-variation-settings: 'wdth' 110, 'wght' 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+/* One hero figure per view. */
+.stat.lead b { font-size: 2.9rem; }
+.stat span { font-size: 0.85rem; color: var(--ink-soft); }
+
+.ledger { width: 100%; border-collapse: collapse; }
+.ledger th, .ledger td {
+  text-align: left;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.94rem;
+  vertical-align: top;
+}
+.ledger tr:last-child th, .ledger tr:last-child td { border-bottom: 0; }
+.ledger th { color: var(--ink-soft); font-weight: 500; width: 46%; }
+.ledger td { font-variation-settings: 'wdth' 104; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Notices take the same top rule as the confirm block, so a warning always
+   arrives the same way. */
+.notice {
+  border-top: 2px solid var(--ochre);
+  background: var(--ochre-bg);
+  color: var(--ink);
+  padding: 13px 15px;
+  margin: 26px 0 0;
+  font-size: 0.92rem;
+}
+.notice .tag { color: var(--ochre-ink); margin-bottom: 4px; }
+.notice p { margin: 0; }
+.notice.bad { border-top-color: var(--oxblood); background: transparent; padding-left: 0; padding-right: 0; }
+.notice.bad .tag { color: var(--oxblood); }
+
+.footnote {
+  margin-top: 26px;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+.footnote a { color: inherit; }
+
+a { color: var(--petrol); text-underline-offset: 2px; }
+a:hover { color: var(--petrol-hover); }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--paper);
+  padding: 1px 4px;
+  border: 1px solid var(--rule);
+}
+
+.prose h2 { margin-top: 28px; }
+.prose h2:first-child { margin-top: 0; }
+.prose ul { margin: 0 0 16px; padding-left: 20px; }
+.prose li { margin-bottom: 7px; }
+
+[hidden] { display: none !important; }
+
+/* Date picker: a real calendar, shown only when a cutoff is being chosen. */
+.datefield { position: relative; }
+
+.dateinput {
+  width: 100%;
+  min-height: 46px;
+  text-align: left;
+  font: inherit;
+  font-weight: 500;
+  font-variation-settings: 'wdth' 100, 'wght' 500;
+  padding: 11px 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.dateinput:hover { background: var(--paper); border-color: var(--petrol); }
+.dateinput svg { flex: none; opacity: 0.55; }
+
+.calendar {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(20rem, 100%);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 12px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.cal-head strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 106, 'wght' 700;
+}
+.cal-nav {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  border-radius: 2px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+.cal-nav:hover { background: var(--rule); }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-grid span {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  padding: 4px 0 6px;
+  font-weight: 600;
+}
+.cal-grid button {
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-radius: 2px;
+  padding: 7px 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  font-variation-settings: 'wdth' 100, 'wght' 500;
+  font-variant-numeric: tabular-nums;
+}
+.cal-grid button:hover:not(:disabled) { background: var(--rule); }
+.cal-grid button[aria-pressed='true'] { background: var(--petrol); color: var(--petrol-ink); font-weight: 700; }
+.cal-grid button:disabled, .cal-grid button:disabled:hover { opacity: 0.25; cursor: default; background: transparent; }
+.cal-grid .blank { padding: 0; }
+
+.cal-selects { display: flex; gap: 6px; flex: 1; justify-content: center; }
+.cal-select {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 5px 6px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  width: auto;
+}
+.cal-nav:disabled, .cal-nav:disabled:hover { opacity: 0.3; cursor: default; background: transparent; }
+
+/* The allowance sits inside the job panel rather than in its own box, so a
+   short card never leaves a hole beside a tall one. */
+.allowance {
+  padding-bottom: 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.allowance .hint { margin: 9px 0 0; }
+
+.quota {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 9px;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A hundred ticks rather than a bar: the limit is counted in posts, so the
+   allowance should be countable too. The overlay carves the gaps, which keeps
+   the markup to one element whatever the quota is. */
+.meter { position: relative; height: 14px; background: var(--ochre-track); }
+.meter i { display: block; height: 100%; background: var(--ochre); }
+.meter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(1% - 1px),
+    var(--card) calc(1% - 1px),
+    var(--card) 1%
+  );
+}
+
+/* When the next pass happens is the thing people come back to read, so it is
+   a line of its own rather than the tail of a grey paragraph. */
+.nextpass {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 0.92rem;
+}
+.nextpass svg { flex: none; stroke: var(--petrol); }
+.nextpass .when { display: flex; align-items: center; gap: 9px; }
+.nextpass .checked { color: var(--ink-soft); font-size: 0.86rem; }
+.nextpass.idle svg { stroke: var(--ink-soft); }
+.nextpass.idle .when { color: var(--ink-soft); }
+
+/* A preview has to show the actual items, not just a count. */
+.preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  /* Real hairlines: the grid gap shows the background through, so edges are
+     one rule thick instead of two. */
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.preview li {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 15px;
+  min-height: 5.4rem;
+  background: var(--card);
+}
+.preview li[hidden] { display: none; }
+.preview .when {
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.preview .kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.preview .what {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  /* Keep every card the same height regardless of post length. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.preview em { color: var(--ink-soft); }
+.preview .open { font-size: 0.74rem; flex: none; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+.pager button { padding: 7px 14px; font-size: 0.88rem; }
+.pager .hint { font-variant-numeric: tabular-nums; margin: 0; }
+
+/* The primary action belongs under the list it acts on, behind the same rule
+   the confirm checkbox uses. */
+.golive {
+  border-top: 2px solid var(--oxblood);
+  padding-top: 16px;
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.golive .hint { margin: 0; max-width: 30rem; }
+.golive form { margin: 0; }
+
+/* Account admin is kept apart from the job's own controls. */
+.tail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+}
+.tail .footnote { margin: 0; max-width: 22rem; }
+.tail form { margin: 0; }
+.tail button { font-size: 0.85rem; padding: 10px 16px; min-height: 44px; }
+
+@media (max-width: 30rem) {
+  main { padding-top: 32px; }
+  .rail { padding: 0 16px; height: 52px; }
+  .panel { padding: 22px 18px 24px; }
+  /* Three tiles at 32px gaps wrap into a ragged column; a grid keeps the two
+     secondary figures side by side under the hero. */
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
+  .stat.lead { grid-column: span 2; }
+  .stat.lead b { font-size: 2.6rem; }
+  .stat b { font-size: 1.7rem; }
+  .stat span { font-size: 0.82rem; }
+  /* 100 ticks in 358px is 3.5px each, which reads as noise. */
+  .meter::after {
+    background: repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(2% - 1px),
+      var(--card) calc(2% - 1px),
+      var(--card) 2%
+    );
+  }
+  .nextpass { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .nextpass .checked { padding-left: 24px; }
+  .actions button, .actions form, .actions form button { width: 100%; }
+  .golive { flex-direction: column; align-items: stretch; }
+  .golive form button { width: 100%; }
+  .tail { flex-direction: column; align-items: flex-start; }
+}
+
+.quota .tag { margin: 0; }
+
+.preview .who { display: inline-flex; align-items: center; gap: 8px; }

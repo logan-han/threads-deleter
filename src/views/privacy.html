@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Privacy — Threads Deleter</title>
+{{{head}}}
+</head>
+<body>
+{{{rail}}}
+<main>
+  <header class="masthead">
+    <h1>privacy</h1>
+    <p>What Threads Deleter stores, why it needs it, and how to get rid of it. Last updated {{updated}}.</p>
+  </header>
+
+  <section class="panel prose">
+    <h2>What is stored</h2>
+    <p>When you connect your account, this service stores one record for you in a database in AWS ap-southeast-4 (Melbourne):</p>
+    <ul>
+      <li>Your Threads user ID and username.</li>
+      <li>A Threads access token, so deletions can run while you are away.</li>
+      <li>The job you set up: whether it covers every post or only posts older than a date, any text filter, and whether it is a dry run.</li>
+      <li>Counts of what has been deleted, skipped and scanned, and the IDs of posts the API refused to delete so they are not retried forever.</li>
+    </ul>
+    <p>Post text is never stored. Posts are read, matched against your filter, deleted or skipped, and discarded.</p>
+
+    <h2>What it is used for</h2>
+    <p>Only to run the deletions you asked for. Nothing is sold, shared, or used for advertising, analytics or training. There are no third-party trackers on these pages.</p>
+
+    <h2>How long it is kept</h2>
+    <p>The record expires automatically 120 days after it is created. You can erase it immediately from your status page using "Erase my token". If you remove the app in Threads, Threads notifies this service and the record is deleted then.</p>
+
+    <h2>Who can see it</h2>
+    <p>The record is reachable only through a link signed with a secret key. Access tokens are encrypted at rest by AWS and are never shown in any page or sent to a browser.</p>
+
+    <h2>Deletion is permanent</h2>
+    <p>Posts this service removes are deleted through the official Threads API. Neither this service nor its operator can restore them. Threads decides how long deleted posts remain recoverable on its side, if at all.</p>
+
+    <h2>Contact</h2>
+    <p>This is a personal project run by Logan Han. For anything about this policy, or to have data removed, email <a href="mailto:logan@han.life">logan@han.life</a>.</p>
+  </section>
+
+  <p class="footnote"><a href="/">Back to Threads Deleter</a></p>
+</main>
+</body>
+</html>

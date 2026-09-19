@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Threads Deleter</title>
+{{{head}}}
+</head>
+<body class="home">
+{{{rail}}}
+<main>
+  <header class="masthead">
+    <h1>threads deleter</h1>
+    <p>Threads lets you delete posts one at a time. Its API lets you delete a hundred a day. Connect your account and this works through your backlog at that rate until there is nothing left to remove.</p>
+  </header>
+
+  {{{warning}}}
+
+  <form method="post" action="/start">
+    <section class="panel">
+      <h2>Choose what goes</h2>
+
+      <div class="field">
+        <label id="targets-label">What to remove</label>
+        <div class="choices" role="group" aria-labelledby="targets-label">
+          <label>
+            <input type="checkbox" name="includePosts" value="yes" checked>
+            <span>My posts</span>
+          </label>
+          <label>
+            <input type="checkbox" name="includeReplies" value="yes" checked>
+            <span>My replies to other people</span>
+          </label>
+        </div>
+        <span class="hint">Threads keeps these in separate places, so pick both to clear everything. Reposts cannot be removed through the API.</span>
+      </div>
+
+      <div class="field">
+        <label for="mode">How much of it</label>
+        <select id="mode" name="mode">
+          <option value="all">Everything</option>
+          <option value="older_than">Only what is older than a date</option>
+        </select>
+      </div>
+
+      <div class="field" id="cutoff-field" hidden>
+        <label id="cutoff-label" for="cutoff-button">Keep anything newer than</label>
+        <div class="datefield" id="datepicker">
+          <button type="button" class="dateinput" id="cutoff-button" aria-haspopup="dialog" aria-expanded="false">
+            <span id="cutoff-label-text">{{todayLabel}}</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+              <rect x="1.5" y="3" width="13" height="11.5" rx="1"></rect>
+              <path d="M1.5 6.5h13M5 1.5v3M11 1.5v3"></path>
+            </svg>
+          </button>
+          <input type="hidden" name="cutoff" id="cutoff" value="{{today}}">
+          <div class="calendar" id="calendar" role="dialog" aria-labelledby="cutoff-label" hidden></div>
+        </div>
+        <span class="hint">Nothing posted on or after this date is ever touched.</span>
+      </div>
+
+      <div class="field">
+        <label for="keyword">Must contain this text</label>
+        <input type="text" id="keyword" name="keyword" placeholder="Leave empty to match every post" maxlength="100">
+        <span class="hint">Optional. Capitalisation is ignored.</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Confirm before connecting</h2>
+
+      <div class="recap">
+        <span class="tag">You are about to remove</span>
+        <p id="recap" aria-live="polite">My <strong>posts and replies</strong>, <strong>from the whole account</strong>.</p>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" name="dryRun" value="yes" checked>
+        <span>Start with a dry run. Reports what matches and removes nothing, so you can check the filters first.</span>
+      </label>
+
+      <div class="grave">
+        <span class="tag">Irreversible</span>
+        <label class="check">
+          <input type="checkbox" name="confirm" value="yes" required>
+          <span>I understand a live run <strong>permanently removes</strong> these posts from Threads and cannot be undone.</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" {{configured}}>Connect Threads</button>
+      </div>
+    </section>
+  </form>
+
+  <p class="footnote">
+    Asks Threads for <code>{{scope}}</code>. Your access token is stored only to run your own deletions and you can erase it from the status page whenever you like.
+    <a href="/privacy">Privacy</a>, <a href="/terms">terms</a> and <a href="/data-deletion">deleting your data</a>.
+  </p>
+</main>
+
+<script>
+(function () {
+  var mode = document.getElementById('mode');
+  var field = document.getElementById('cutoff-field');
+
+  // The cutoff only means anything for the date option.
+  function syncMode() { field.hidden = mode.value !== 'older_than'; }
+  mode.addEventListener('change', function () { syncMode(); recap(); });
+  syncMode();
+
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  var DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  // Threads launched in July 2023, so nothing can be older than that.
+  var MIN_YEAR = 2023;
+
+  var hidden = document.getElementById('cutoff');
+  var button = document.getElementById('cutoff-button');
+  var labelText = document.getElementById('cutoff-label-text');
+  var calendar = document.getElementById('calendar');
+  var picker = document.getElementById('datepicker');
+
+  // What the filters add up to, in one sentence, so the irreversible tick below
+  // is made against something readable rather than four separate controls.
+  var out = document.getElementById('recap');
+  var keyword = document.getElementById('keyword');
+  var posts = document.querySelector('[name="includePosts"]');
+  var replies = document.querySelector('[name="includeReplies"]');
+
+  function strong(text) {
+    var node = document.createElement('strong');
+    node.textContent = text;
+    return node;
+  }
+  function say(text) { return document.createTextNode(text); }
+
+  function recap() {
+    var what = posts.checked && replies.checked ? 'posts and replies'
+      : posts.checked ? 'posts'
+        : replies.checked ? 'replies' : '';
+
+    out.textContent = '';
+    if (!what) {
+      out.appendChild(say('Nothing yet. Choose posts, replies, or both.'));
+      return;
+    }
+
+    out.appendChild(say('My '));
+    out.appendChild(strong(what));
+    out.appendChild(say(', '));
+    out.appendChild(strong(mode.value === 'older_than'
+      ? 'older than ' + labelText.textContent
+      : 'from the whole account'));
+
+    var text = keyword.value.trim();
+    if (text) {
+      out.appendChild(say(', containing '));
+      out.appendChild(strong('“' + text + '”'));
+    }
+    out.appendChild(say('.'));
+  }
+
+  posts.addEventListener('change', recap);
+  replies.addEventListener('change', recap);
+  keyword.addEventListener('input', recap);
+
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  function parse(value) {
+    var bits = String(value || '').split('-');
+    var d = new Date(Number(bits[0]), Number(bits[1]) - 1, Number(bits[2]));
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? new Date(today) : d;
+  }
+  function iso(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+  function pretty(d) { return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear(); }
+
+  var selected = parse(hidden.value);
+  var viewYear = selected.getFullYear();
+  var viewMonth = selected.getMonth();
+  labelText.textContent = pretty(selected);
+  recap();
+
+  // Header is built once and kept, so redrawing the grid never detaches the
+  // control the user just clicked.
+  var head = document.createElement('div');
+  head.className = 'cal-head';
+
+  var prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'cal-nav';
+  prev.setAttribute('aria-label', 'Previous month');
+  prev.textContent = '‹';
+
+  var monthSelect = document.createElement('select');
+  monthSelect.className = 'cal-select';
+  monthSelect.setAttribute('aria-label', 'Month');
+  MONTHS.forEach(function (name, i) {
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = name;
+    monthSelect.appendChild(o);
+  });
+
+  var yearSelect = document.createElement('select');
+  yearSelect.className = 'cal-select';
+  yearSelect.setAttribute('aria-label', 'Year');
+  for (var y = today.getFullYear(); y >= MIN_YEAR; y -= 1) {
+    var o = document.createElement('option');
+    o.value = String(y);
+    o.textContent = String(y);
+    yearSelect.appendChild(o);
+  }
+
+  var next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'cal-nav';
+  next.setAttribute('aria-label', 'Next month');
+  next.textContent = '›';
+
+  var selects = document.createElement('div');
+  selects.className = 'cal-selects';
+  selects.appendChild(monthSelect);
+  selects.appendChild(yearSelect);
+
+  head.appendChild(prev);
+  head.appendChild(selects);
+  head.appendChild(next);
+
+  var grid = document.createElement('div');
+  grid.className = 'cal-grid';
+
+  calendar.appendChild(head);
+  calendar.appendChild(grid);
+
+  function atEarliest() { return viewYear === MIN_YEAR && viewMonth === 0; }
+  function atLatest() {
+    return viewYear === today.getFullYear() && viewMonth === today.getMonth();
+  }
+
+  function renderGrid() {
+    grid.innerHTML = '';
+
+    DAYS.forEach(function (d) {
+      var s = document.createElement('span');
+      s.textContent = d;
+      grid.appendChild(s);
+    });
+
+    var first = new Date(viewYear, viewMonth, 1);
+    var lead = (first.getDay() + 6) % 7;
+    for (var i = 0; i < lead; i += 1) {
+      var blank = document.createElement('div');
+      blank.className = 'blank';
+      grid.appendChild(blank);
+    }
+
+    var count = new Date(viewYear, viewMonth + 1, 0).getDate();
+    for (var day = 1; day <= count; day += 1) {
+      (function (dayNumber) {
+        var date = new Date(viewYear, viewMonth, dayNumber);
+        date.setHours(0, 0, 0, 0);
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.textContent = String(dayNumber);
+        // A cutoff in the future would match every post, so cap it at today.
+        cell.disabled = date > today;
+        cell.setAttribute('aria-pressed', iso(date) === iso(selected) ? 'true' : 'false');
+        cell.addEventListener('click', function () {
+          selected = date;
+          hidden.value = iso(date);
+          labelText.textContent = pretty(date);
+          recap();
+          close();
+          button.focus();
+        });
+        grid.appendChild(cell);
+      })(day);
+    }
+  }
+
+  function render() {
+    monthSelect.value = String(viewMonth);
+    yearSelect.value = String(viewYear);
+    prev.disabled = atEarliest();
+    next.disabled = atLatest();
+    renderGrid();
+  }
+
+  function shift(by) {
+    var d = new Date(viewYear, viewMonth + by, 1);
+    viewYear = d.getFullYear();
+    viewMonth = d.getMonth();
+    render();
+  }
+
+  prev.addEventListener('click', function () { shift(-1); });
+  next.addEventListener('click', function () { shift(1); });
+  monthSelect.addEventListener('change', function () {
+    viewMonth = Number(monthSelect.value);
+    render();
+  });
+  yearSelect.addEventListener('change', function () {
+    viewYear = Number(yearSelect.value);
+    // Jumping to the current year can land on a month that has not happened.
+    if (viewYear === today.getFullYear() && viewMonth > today.getMonth()) {
+      viewMonth = today.getMonth();
+    }
+    render();
+  });
+
+  function open() {
+    viewYear = selected.getFullYear();
+    viewMonth = selected.getMonth();
+    render();
+    calendar.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+  }
+  function close() {
+    calendar.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+  }
+
+  button.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (calendar.hidden) { open(); } else { close(); }
+  });
+  // Keep clicks inside the calendar away from the outside-click handler, which
+  // otherwise closes it when a redraw detaches the clicked element.
+  calendar.addEventListener('click', function (e) { e.stopPropagation(); });
+  document.addEventListener('click', function (e) {
+    if (!picker.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !calendar.hidden) { close(); button.focus(); }
+  });
+})();
+</script>
+</body>
+</html>

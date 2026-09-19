@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Bulk-delete your own Threads posts within the API's 100-per-day quota
+
+Parameters:
+  ThreadsAppId:
+    Type: String
+    Description: Threads App ID from App settings > Basic
+  ThreadsAppSecret:
+    Type: String
+    NoEcho: true
+    Description: Threads App secret from App settings > Basic
+  StateSecret:
+    Type: String
+    NoEcho: true
+    Description: Random secret used to sign OAuth state and status links
+  RedirectUri:
+    Type: String
+    Default: ''
+    Description: Only needed when a custom domain fronts the API
+  ThreadsScope:
+    Type: String
+    Default: ''
+    Description: Leave empty so src/config.js owns the default scope list.
+  CustomDomainName:
+    Type: String
+    Default: ''
+    Description: e.g. threads.han.life. Leave empty to use the execute-api URL.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM cert for CustomDomainName, in THIS region (HTTP APIs need a regional cert).
+
+Conditions:
+  # Both must be set, otherwise the stack keeps serving on the execute-api URL.
+  HasCustomDomain: !And
+    - !Not [!Equals [!Ref CustomDomainName, '']]
+    - !Not [!Equals [!Ref CertificateArn, '']]
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref JobsTable
+        WORKER_FUNCTION_NAME: !Sub '${AWS::StackName}-worker'
+        THREADS_APP_ID: !Ref ThreadsAppId
+        THREADS_APP_SECRET: !Ref ThreadsAppSecret
+        STATE_SECRET: !Ref StateSecret
+        REDIRECT_URI: !Ref RedirectUri
+        THREADS_SCOPE: !Ref ThreadsScope
+
+Resources:
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-jobs'
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      # Provisioned, not on-demand: the DynamoDB always-free tier covers 25 RCU
+      # and 25 WCU per account, and on-demand capacity is not part of it.
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      # No access logs: CloudWatch ingest is the only thing here that would
+      # meaningfully cost money at idle.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  ApiDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasCustomDomain
+    Properties:
+      DomainName: !Ref CustomDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  ApiDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasCustomDomain
+    Properties:
+      ApiId: !Ref Api
+      DomainName: !Ref ApiDomain
+      Stage: $default
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-api'
+      # CodeUri must sit on the resource: the packager does not rewrite Globals.
+      CodeUri: ../.build/app
+      Handler: src/handler.api
+      Timeout: 29
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt JobsTable.Arn
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-worker'
+      Events:
+        # A catch-all: src/web.js owns routing and returns its own 404, so a new
+        # page never needs a matching route added here.
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /
+            Method: ANY
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            # Quoted: an unquoted brace starts a YAML flow mapping.
+            Path: '/{proxy+}'
+            Method: ANY
+
+  ApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-api'
+      RetentionInDays: 14
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-worker'
+      CodeUri: ../.build/app
+      Handler: src/handler.worker
+      Timeout: 300
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+              Resource: !GetAtt JobsTable.Arn
+      Events:
+        Tick:
+          Type: ScheduleV2
+          Properties:
+            # Meta allows 100 deletes per rolling 24h, so six passes a day gives
+            # ample headroom and one failed run costs little.
+            ScheduleExpression: rate(4 hours)
+            Description: Drip-delete Threads posts for every active job
+
+  WorkerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-worker'
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: Base URL; the OAuth callback is this plus /callback
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com'
+  TableName:
+    Value: !Ref JobsTable
+  CustomDomainTarget:
+    Condition: HasCustomDomain
+    Description: Point a CNAME for CustomDomainName at this value
+    Value: !GetAtt ApiDomain.RegionalDomainName
