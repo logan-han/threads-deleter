@@ -1,5 +1,8 @@
+import { createRequire } from 'node:module';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import worker from '../src/worker.js';
+
+const require = createRequire(import.meta.url);
+const worker = require('../src/worker.js');
 
 const { matchesFilters, runJob } = worker;
 
@@ -454,6 +457,67 @@ describe('finishing the work', () => {
     await runJob({ ...baseJob, deletedCount: 40 }, deps);
 
     expect(deps.updates[0].patch.lastMessage).toMatch(/140 in total/);
+  });
+
+  it('stops at an unexpected failure and leaves that post to be retried, not skipped', async () => {
+    let n = 0;
+    const deps = makeDeps({
+      quota: { used: 97, total: 100, remaining: 3 },
+      pages: [{
+        data: ['1', '2', '3'].map((id) => post(id, '2025-01-01T00:00:00+0000')),
+        paging: { cursors: { after: 'more' } },
+      }],
+      deleteImpl: vi.fn(async () => {
+        n += 1;
+        if (n === 2) throw new Error('socket hang up');
+        return { success: true };
+      }),
+    });
+
+    const result = await runJob(baseJob, deps);
+
+    expect(result).toMatchObject({ deleted: 1, skipped: 0, reason: 'ok' });
+    expect(deps.threads.deletePost).toHaveBeenCalledTimes(2);
+    expect(deps.updates[0].patch).toMatchObject({ state: 'active', lastError: 'socket hang up', skipIds: [] });
+  });
+
+  it('says so when the only posts it reached this pass were undeletable', async () => {
+    const permanent = Object.assign(new Error('Media type is not supported'), {
+      isPermanent: true,
+      isRateLimit: false,
+    });
+    const deps = makeDeps({
+      quota: { used: 99, total: 100, remaining: 1 },
+      pages: [{
+        data: [post('bad', '2025-01-01T00:00:00+0000'), post('next', '2025-01-02T00:00:00+0000')],
+        paging: { cursors: { after: 'more' } },
+      }],
+      deleteImpl: vi.fn(async () => {
+        throw permanent;
+      }),
+    });
+
+    await runJob(baseJob, deps);
+
+    expect(deps.updates[0].patch).toMatchObject({ state: 'active', skipIds: ['bad'] });
+    expect(deps.updates[0].patch.lastMessage).toMatch(/1 could not be deleted/);
+  });
+
+  it('keeps going when a pass runs out of pages before finding a match', async () => {
+    const deps = makeDeps({
+      pages: [{
+        data: [post('1', '2025-01-01T00:00:00+0000', 'nothing to see')],
+        paging: { cursors: { after: 'more' } },
+      }],
+    });
+
+    const result = await runJob({ ...baseJob, keyword: 'needle' }, deps);
+
+    expect(deps.threads.listMedia).toHaveBeenCalledTimes(10);
+    expect(deps.threads.deletePost).not.toHaveBeenCalled();
+    expect(result.reason).toBe('ok');
+    expect(deps.updates[0].patch).toMatchObject({ state: 'active', scannedCount: 10 });
+    expect(deps.updates[0].patch.lastMessage).toMatch(/More to go/);
   });
 });
 

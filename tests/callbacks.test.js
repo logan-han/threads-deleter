@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import web from '../src/web.js';
-import signedRequestModule from '../src/signed-request.js';
+import { createRequire } from 'node:module';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { parseSignedRequest } = signedRequestModule;
+const require = createRequire(import.meta.url);
+const web = require('../src/web.js');
+const { parseSignedRequest } = require('../src/signed-request.js');
+const config = require('../src/config.js');
 const APP_SECRET = 'app-secret';
 
 const signedRequest = (payload, secret = APP_SECRET) => {
@@ -34,6 +36,10 @@ const makeDeps = () => ({
 
 beforeEach(() => vi.clearAllMocks());
 
+afterEach(() => {
+  config.appSecret = APP_SECRET;
+});
+
 describe('parseSignedRequest', () => {
   it('accepts a correctly signed payload', () => {
     expect(parseSignedRequest(signedRequest({ user_id: '99', algorithm: 'HMAC-SHA256' }))).toMatchObject({
@@ -56,6 +62,17 @@ describe('parseSignedRequest', () => {
 
   it('rejects a payload with no user', () => {
     expect(parseSignedRequest(signedRequest({ nope: true }))).toBeNull();
+  });
+
+  it('rejects a correctly signed payload that is not JSON', () => {
+    const body = Buffer.from('not json').toString('base64url');
+    const sig = crypto.createHmac('sha256', APP_SECRET).update(body).digest('base64url');
+    expect(parseSignedRequest(`${sig}.${body}`)).toBeNull();
+  });
+
+  it('rejects everything while the app secret is unset, since an empty key is forgeable', () => {
+    config.appSecret = '';
+    expect(parseSignedRequest(signedRequest({ user_id: '99' }, ''))).toBeNull();
   });
 });
 

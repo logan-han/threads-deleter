@@ -21,5 +21,10 @@ export default [
       sourceType: 'module',
       globals: { ...globals.node },
     },
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['../src/*'], message: 'Load src/ with createRequire; see vitest.config.mjs.' }],
+      }],
+    },
   },
 ];

@@ -1,5 +1,8 @@
+import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import threads from '../src/threads.js';
+
+const require = createRequire(import.meta.url);
+const threads = require('../src/threads.js');
 
 const mockFetch = (status, payload) => {
   const spy = vi.fn().mockResolvedValue({

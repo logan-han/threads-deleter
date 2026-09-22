@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import web from '../src/web.js';
-import signModule from '../src/sign.js';
+import { createRequire } from 'node:module';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sign, verify } = signModule;
+const require = createRequire(import.meta.url);
+const web = require('../src/web.js');
+const { sign, verify } = require('../src/sign.js');
 
 const NOW = Date.UTC(2026, 8, 17);
 
@@ -93,6 +94,37 @@ describe('POST /start', () => {
     expect(decoded.keyword).toBe('hello');
     expect(decoded.dryRun).toBe(false);
   });
+
+  it('refuses when neither posts nor replies is chosen', async () => {
+    const response = await web.handler(
+      event('POST', '/start', { body: { mode: 'all', confirm: 'yes' } }),
+      makeDeps()
+    );
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain('at least one of posts or replies');
+  });
+
+  it('can target replies alone', async () => {
+    const deps = makeDeps();
+    await web.handler(
+      event('POST', '/start', { body: { mode: 'all', confirm: 'yes', includeReplies: 'yes' } }),
+      deps
+    );
+    expect(verify(deps.threads.authorizeUrl.mock.calls[0][0]).targets).toEqual(['replies']);
+  });
+
+  it('decodes a form body that API Gateway base64-encoded', async () => {
+    const deps = makeDeps();
+    const form = new URLSearchParams({ mode: 'all', confirm: 'yes', includePosts: 'yes' }).toString();
+
+    const response = await web.handler(
+      { ...event('POST', '/start'), body: Buffer.from(form).toString('base64'), isBase64Encoded: true },
+      deps
+    );
+
+    expect(response.statusCode).toBe(302);
+    expect(verify(deps.threads.authorizeUrl.mock.calls[0][0]).targets).toEqual(['posts']);
+  });
 });
 
 describe('GET /callback', () => {
@@ -155,6 +187,66 @@ describe('GET /callback', () => {
       createdAt: 1,
     });
   });
+
+  it('refuses a callback with no authorisation code', async () => {
+    const response = await web.handler(
+      event('GET', '/callback', { query: { state: sign({ mode: 'all' }) } }),
+      makeDeps()
+    );
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain('did not return an authorisation code');
+  });
+
+  it('names the error when Threads sends no description', async () => {
+    const response = await web.handler(event('GET', '/callback', { query: { error: 'access_denied' } }), makeDeps());
+    expect(response.body).toContain('Threads returned &quot;access_denied&quot;');
+  });
+
+  it('keys the job on the token exchange user id when the profile has none', async () => {
+    const deps = makeDeps();
+    deps.threads.getMe.mockResolvedValue({ username: 'logan' });
+
+    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+
+    expect(deps.store.putJob.mock.calls[0][0].userId).toBe('555');
+  });
+
+  it('previews inline, so the status page opens on real results', async () => {
+    const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: true } });
+    await web.handler(
+      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all', dryRun: true }) } }),
+      deps
+    );
+
+    expect(deps.runJob).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: '555' }),
+      expect.objectContaining({ now: NOW })
+    );
+    expect(deps.runNow).not.toHaveBeenCalled();
+  });
+
+  it('hands a live job to the worker instead of running it inline', async () => {
+    const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: false } });
+    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+
+    expect(deps.runNow).toHaveBeenCalledWith('555');
+    expect(deps.runJob).not.toHaveBeenCalled();
+  });
+
+  it('still connects when the inline preview fails', async () => {
+    const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: true } });
+    deps.runJob.mockRejectedValue(new Error('Threads is down'));
+
+    const response = await web.handler(
+      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all', dryRun: true }) } }),
+      deps
+    );
+
+    expect(response.statusCode).toBe(302);
+    expect(deps.store.updateJob).toHaveBeenCalledWith('555', {
+      lastMessage: 'Could not preview just now: Threads is down. It will retry shortly.',
+    });
+  });
 });
 
 describe('GET /status', () => {
@@ -197,6 +289,27 @@ describe('GET /status', () => {
 
     expect(response.body).not.toContain('<script>x</script>');
     expect(response.body).toContain('&lt;script&gt;');
+  });
+
+  it('refuses a request with no link at all', async () => {
+    const response = await web.handler(event('GET', '/status'), makeDeps());
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('treats a signed link to an erased job as invalid', async () => {
+    const response = await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps());
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('shows the last error, escaped', async () => {
+    const job = { userId: '555', state: 'active', mode: 'all', lastError: 'Invalid <token>' };
+    const response = await web.handler(
+      event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
+      makeDeps({ job })
+    );
+
+    expect(response.body).toContain('Last error');
+    expect(response.body).toContain('Invalid &lt;token&gt;');
   });
 });
 
@@ -514,6 +627,22 @@ describe('the job panel shows only figures that carry information', () => {
     });
     expect(body).toContain('Checked 3 minutes ago');
   });
+
+  it('sizes a preview in days at the daily allowance', async () => {
+    const body = await statusFor({
+      userId: '555', state: 'previewed', mode: 'all', dryRun: true, previewCount: 1234,
+    });
+    expect(body).toContain('<b>1,234</b><span>would be removed</span>');
+    expect(body).toContain('<b>13</b><span>days at 100 a day</span>');
+  });
+
+  it('calls a preview that stopped at its page limit a floor, not a total', async () => {
+    const body = await statusFor({
+      userId: '555', state: 'previewed', mode: 'all', dryRun: true, previewCount: 1000, previewPartial: true,
+    });
+    expect(body).toContain('<b>1,000</b><span>matched before the scan stopped</span>');
+    expect(body).toContain('<b>10</b><span>days at 100 a day, at least</span>');
+  });
 });
 
 describe('where the actions sit', () => {
@@ -553,5 +682,94 @@ describe('where the actions sit', () => {
     });
     const jobPanel = body.slice(body.indexOf('This job'), body.indexOf('class="tail"'));
     expect(jobPanel).toContain('/pause');
+  });
+});
+
+describe('each state explains itself', () => {
+  const statusFor = async (job) =>
+    (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job }))).body;
+
+  it('tells a paused job how to carry on, and offers resume instead of pause', async () => {
+    const body = await statusFor({ userId: '555', state: 'paused', mode: 'all' });
+    expect(body).toContain('Paused until you resume it');
+    expect(body).toContain('Resume when you want it to carry on.');
+    expect(body).toContain('action="/resume"');
+    expect(body).not.toContain('action="/pause"');
+  });
+
+  it('tells a stopped job to reconnect, with nothing to pause or resume', async () => {
+    const body = await statusFor({ userId: '555', state: 'error', mode: 'all' });
+    expect(body).toContain('Stopped after an error');
+    expect(body).toContain('Connect again to retry.');
+    expect(body).not.toMatch(/action="\/(pause|resume)"/);
+  });
+
+  it('names a state it does not know rather than failing', async () => {
+    const body = await statusFor({ userId: '555', state: 'archived', mode: 'all' });
+    expect(body).toContain('<h1>archived</h1>');
+    expect(body).not.toContain('<span class="state');
+  });
+});
+
+describe('deployment configuration', () => {
+  const config = require('../src/config.js');
+  const saved = { ...config };
+  const start = () => event('POST', '/start', { body: { mode: 'all', confirm: 'yes', includePosts: 'yes' } });
+
+  afterEach(() => {
+    Object.assign(config, saved);
+    vi.restoreAllMocks();
+  });
+
+  it('switches connecting off, and says why, without app credentials', async () => {
+    config.appId = '';
+
+    const page = await web.handler(event('GET', '/'), makeDeps());
+    expect(page.body).toContain('Not configured');
+    expect(page.body).toContain('<button type="submit" disabled>');
+
+    const response = await web.handler(start(), makeDeps());
+    expect(response.statusCode).toBe(503);
+  });
+
+  it('uses REDIRECT_URI for both the authorise and token calls, which Meta needs to match', async () => {
+    config.redirectUri = 'https://threads.han.life/callback';
+    const deps = makeDeps();
+
+    await web.handler(start(), deps);
+    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+
+    expect(deps.threads.authorizeUrl.mock.calls[0][1]).toBe('https://threads.han.life/callback');
+    expect(deps.threads.exchangeCode).toHaveBeenCalledWith('c', 'https://threads.han.life/callback');
+  });
+
+  it('shows an error page when it cannot work out its own callback URL', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await web.handler({ ...start(), headers: {} }, makeDeps());
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toContain('cannot determine the callback URL');
+  });
+});
+
+describe('describeJob', () => {
+  it('names what a job covers in words', () => {
+    expect(web.describeJob({ targets: ['replies'] })).toBe('replies');
+    expect(web.describeJob({ targets: ['posts', 'replies'], keyword: 'crypto' }))
+      .toBe('posts and replies containing "crypto"');
+    expect(web.describeJob({ mode: 'older_than', cutoffIso: '2026-03-01T00:00:00.000Z' }))
+      .toBe('posts older than 1 March 2026');
+  });
+});
+
+describe('sinceText', () => {
+  it('reads naturally from seconds to hours', () => {
+    const ago = (ms) => web.sinceText(NOW - ms, NOW);
+    expect(web.sinceText(null, NOW)).toBe('not yet');
+    expect(ago(20 * 1000)).toBe('just now');
+    expect(ago(60 * 1000)).toBe('1 minute ago');
+    expect(ago(45 * 60 * 1000)).toBe('45 minutes ago');
+    expect(ago(60 * 60 * 1000)).toBe('1 hour ago');
+    expect(ago(5 * 60 * 60 * 1000)).toBe('5 hours ago');
   });
 });
