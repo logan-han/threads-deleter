@@ -108,6 +108,20 @@ describe('deletePost', () => {
   });
 });
 
+describe('getMedia', () => {
+  it('reads just the text of one post, and can be abandoned', async () => {
+    const spy = mockFetch(200, { id: '99', text: 'hello' });
+    const { signal } = new AbortController();
+
+    await expect(threads.getMedia('99', 'tok', { signal })).resolves.toEqual({ id: '99', text: 'hello' });
+
+    const [url, init] = spy.mock.calls[0];
+    expect(new URL(url).pathname).toBe('/v1.0/99');
+    expect(new URL(url).searchParams.get('fields')).toBe('text');
+    expect(init).toMatchObject({ method: 'GET', signal });
+  });
+});
+
 describe('exchangeLongLived', () => {
   it('trades the short-lived token for a 60-day one', async () => {
     const spy = mockFetch(200, { access_token: 'long', expires_in: 5183944 });

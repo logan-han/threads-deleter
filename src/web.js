@@ -372,6 +372,35 @@ const buildActions = (job, token) => {
   return out;
 };
 
+const PREVIEW_READERS = 8;
+const PREVIEW_TEXT_TIMEOUT_MS = 4000;
+
+// The preview stores no post text, so read it live: a few posts at a time, all
+// abandoned after a few seconds. A text that cannot be read comes back null.
+const withLiveText = async (job, threads) => {
+  const items = Array.isArray(job.preview) ? job.preview : [];
+  if (items.length === 0) return job;
+
+  const signal = AbortSignal.timeout(PREVIEW_TEXT_TIMEOUT_MS);
+  const texts = new Array(items.length).fill(null);
+  let next = 0;
+
+  const reader = async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        const post = await threads.getMedia(items[i].id, job.accessToken, { signal });
+        texts[i] = String(post.text || '').slice(0, 140);
+      } catch {
+        texts[i] = null;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(PREVIEW_READERS, items.length) }, reader));
+  return { ...job, preview: items.map((item, i) => ({ ...item, text: texts[i] })) };
+};
+
 const previewList = (job, primaryAction) => {
   const items = Array.isArray(job.preview) ? job.preview : [];
   if (items.length === 0) return '';
@@ -379,8 +408,8 @@ const previewList = (job, primaryAction) => {
   const rows = items.map((item, i) => {
     const when = item.timestamp ? readableDate(item.timestamp) : 'no date';
     const kind = item.source === 'replies' ? 'reply' : 'post';
-    const text = (item.text || '').trim();
-    const body = text ? escapeHtml(text) : '<em>no text</em>';
+    const text = typeof item.text === 'string' ? item.text.trim() : null;
+    const body = text ? escapeHtml(text) : `<em>${text === null ? 'text unavailable' : 'no text'}</em>`;
     const link = item.permalink
       ? `<a class="open" href="${escapeHtml(item.permalink)}" target="_blank" rel="noopener">open</a>`
       : '';
@@ -408,7 +437,7 @@ const previewList = (job, primaryAction) => {
   </section>`;
 };
 
-const handleStatus = async (event, { store, now }) => {
+const handleStatus = async (event, { store, threads, now }) => {
   const found = await jobFromToken(event, store);
   if (!found) return errorPage('That status link is not valid. It may have been erased already.', 404);
 
@@ -452,7 +481,7 @@ const handleStatus = async (event, { store, now }) => {
 
   // The primary action rides with the preview it acts on. With no preview to
   // attach it to, it falls back to the job panel so the job is never stranded.
-  const preview = job.state === 'previewed' ? previewList(job, acts.primary) : '';
+  const preview = job.state === 'previewed' ? previewList(await withLiveText(job, threads), acts.primary) : '';
   const strandedPrimary = acts.primary && !preview ? acts.primary : '';
   const jobBar = acts.job + strandedPrimary;
   const jobActionBar = jobBar ? `<div class="actions">${jobBar}</div>` : '';
@@ -491,7 +520,7 @@ const handleGoLive = async (event, deps) => {
   await deps.store.updateJob(found.job.userId, {
     dryRun: false,
     state: deps.store.STATES.active,
-    // Only a preview shows the sample, so its post text need not outlive it.
+    // Only a preview shows the sample, so it need not outlive the preview.
     preview: [],
     lastMessage: 'Deleting for real now. The first batch is running.',
   });

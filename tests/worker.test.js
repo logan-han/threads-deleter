@@ -170,6 +170,17 @@ describe('runJob', () => {
     expect(deps.updates[0].patch.preview[0]).toMatchObject({ id: '1', source: 'posts' });
   });
 
+  it('stores no post text in the preview, only what finds each post again', async () => {
+    const posted = { ...post('1', '2025-01-01T00:00:00+0000', 'private words'), permalink: 'https://www.threads.net/x/1' };
+    deps = makeDeps({ pages: [{ data: [posted] }] });
+
+    await runJob({ ...baseJob, dryRun: true }, deps);
+
+    expect(deps.updates[0].patch.preview).toEqual([
+      { id: '1', source: 'posts', timestamp: '2025-01-01T00:00:00+0000', permalink: 'https://www.threads.net/x/1' },
+    ]);
+  });
+
   it('marks the job done when the listing is exhausted with no matches', async () => {
     deps = makeDeps({ pages: [{ data: [] }] });
 

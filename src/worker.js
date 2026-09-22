@@ -150,11 +150,11 @@ const runJob = async (job, overrides = {}) => {
       quotaUsed: quota.used,
       quotaTotal: quota.total,
       scannedCount: Number(job.scannedCount || 0) + scanned,
+      // No text: the status page reads it live, so no post content is stored.
       preview: candidates.slice(0, config.previewSampleSize).map((item) => ({
         id: item.id,
         source: item.source,
         timestamp: item.timestamp || null,
-        text: (item.text || '').slice(0, 140),
         permalink: item.permalink || null,
       })),
       previewCount: candidates.length,

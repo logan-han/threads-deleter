@@ -40,7 +40,7 @@ const parse = async (response) => {
   }
 };
 
-const request = async (endpoint, { method = 'GET', body, query } = {}) => {
+const request = async (endpoint, { method = 'GET', body, query, signal } = {}) => {
   const url = new URL(endpoint);
   for (const [key, value] of Object.entries(query || {})) {
     if (value !== undefined && value !== null && value !== '') {
@@ -48,7 +48,7 @@ const request = async (endpoint, { method = 'GET', body, query } = {}) => {
     }
   }
 
-  const init = { method };
+  const init = { method, signal };
   if (body) {
     init.body = new URLSearchParams(body);
   }
@@ -147,6 +147,13 @@ const deletePost = (mediaId, token) =>
     query: { access_token: token },
   });
 
+// Reads one post's text live, so a preview never has to store it.
+const getMedia = (mediaId, token, { signal } = {}) =>
+  request(`${config.graphHost}/v1.0/${mediaId}`, {
+    query: { fields: 'text', access_token: token },
+    signal,
+  });
+
 const authorizeUrl = (state, redirectUri) => {
   const url = new URL(`${config.authHost}/oauth/authorize`);
   url.searchParams.set('client_id', config.appId);
@@ -165,6 +172,7 @@ module.exports = {
   exchangeLongLived,
   getDeleteQuota,
   getMe,
+  getMedia,
   listMedia,
   listPosts,
   listReplies,

@@ -25,7 +25,8 @@ const callbackEvent = (options, query = {}) => event('GET', '/callback', {
   cookies: [`__Host-oauth_state=${NONCE}`],
 });
 
-const makeDeps = ({ job = null } = {}) => ({
+// texts stands in for what Threads returns when the preview reads a post live.
+const makeDeps = ({ job = null, texts = {} } = {}) => ({
   now: NOW,
   runNow: vi.fn(async () => true),
   runJob: vi.fn(async () => ({ deleted: 0 })),
@@ -41,6 +42,7 @@ const makeDeps = ({ job = null } = {}) => ({
     exchangeCode: vi.fn(async () => ({ access_token: 'short', user_id: 555 })),
     exchangeLongLived: vi.fn(async () => ({ access_token: 'long', expires_in: 5183944 })),
     getMe: vi.fn(async () => ({ id: '555', username: 'logan' })),
+    getMedia: vi.fn(async (id) => ({ id, text: texts[id] ?? `post ${id}` })),
   },
 });
 
@@ -539,23 +541,64 @@ describe('reconnecting over an existing job', () => {
 describe('preview shows what would go', () => {
   const previewJob = {
     userId: '555', state: 'previewed', mode: 'all', dryRun: true, targets: ['posts', 'replies'],
+    accessToken: 'long-token',
     previewCount: 40,
     preview: [
-      { id: '1', source: 'replies', timestamp: '2025-03-04T00:00:00+0000', text: 'a reply of mine', permalink: 'https://www.threads.net/x/1' },
-      { id: '2', source: 'posts', timestamp: '2025-02-01T00:00:00+0000', text: '', permalink: null },
+      { id: '1', source: 'replies', timestamp: '2025-03-04T00:00:00+0000', permalink: 'https://www.threads.net/x/1' },
+      { id: '2', source: 'posts', timestamp: '2025-02-01T00:00:00+0000', permalink: null },
     ],
   };
+  const texts = { 1: 'a reply of mine', 2: '' };
 
   it('lists the matched items with dates and links', async () => {
     const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job: previewJob })
+      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job: previewJob, texts })
     )).body;
 
     expect(body).toContain('What would be removed');
     expect(body).toContain('a reply of mine');
+    expect(body).toContain('<em>no text</em>');
     expect(body).toContain('4 March 2025');
     expect(body).toContain('https://www.threads.net/x/1');
     expect(body).toContain('reply');
+  });
+
+  it('reads the text of each post live with the job token, since none is stored', async () => {
+    const deps = makeDeps({ job: previewJob, texts });
+    await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+
+    expect(deps.threads.getMedia).toHaveBeenCalledTimes(2);
+    expect(deps.threads.getMedia).toHaveBeenCalledWith('1', 'long-token', { signal: expect.any(AbortSignal) });
+  });
+
+  it('still lists what would go when Threads will not return the text', async () => {
+    const deps = makeDeps({ job: previewJob });
+    deps.threads.getMedia.mockRejectedValue(new Error('Object with ID 1 does not exist'));
+
+    const body = (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps)).body;
+
+    expect(body).toContain('<em>text unavailable</em>');
+    expect(body).toContain('4 March 2025');
+    expect(body).toContain('https://www.threads.net/x/1');
+  });
+
+  it('reads a few posts at a time rather than all at once', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const job = { ...previewJob, preview: Array.from({ length: 30 }, (_, i) => ({ id: String(i), source: 'posts' })) };
+    const deps = makeDeps({ job });
+    deps.threads.getMedia.mockImplementation(async (id) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return { id, text: 'x' };
+    });
+
+    await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+
+    expect(deps.threads.getMedia).toHaveBeenCalledTimes(30);
+    expect(peak).toBe(8);
   });
 
   it('says how many of the total are shown', async () => {
@@ -566,20 +609,20 @@ describe('preview shows what would go', () => {
   });
 
   it('escapes post text into the list', async () => {
-    const job = { ...previewJob, preview: [{ id: '1', source: 'posts', timestamp: null, text: '<script>bad</script>' }] };
+    const job = { ...previewJob, preview: [{ id: '1', source: 'posts', timestamp: null }] };
     const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job })
+      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job, texts: { 1: '<script>bad</script>' } })
     )).body;
     expect(body).not.toContain('<script>bad</script>');
     expect(body).toContain('&lt;script&gt;');
   });
 
-  it('shows no list for a live job', async () => {
-    const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
-      makeDeps({ job: { userId: '555', state: 'active', mode: 'all', dryRun: false } })
-    )).body;
+  it('shows no list, and reads nothing from Threads, for a live job', async () => {
+    const deps = makeDeps({ job: { ...previewJob, state: 'active', dryRun: false } });
+    const body = (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps)).body;
+
     expect(body).not.toContain('What would be removed');
+    expect(deps.threads.getMedia).not.toHaveBeenCalled();
   });
 });
 
