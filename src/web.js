@@ -527,19 +527,21 @@ const handler = async (event, overrides = {}) => {
   const path = event.rawPath || '/';
 
   try {
-    if (method === 'GET' && (path === '/' || path === '')) return handleIndex();
-    if (method === 'GET' && path === '/privacy') return policyPage('privacy');
-    if (method === 'GET' && path === '/terms') return policyPage('terms');
-    if (method === 'GET' && path === '/data-deletion') return policyPage('data-deletion');
-    if (method === 'POST' && path === '/deauthorize') return handleDeauthorize(event, deps);
-    if (method === 'POST' && path === '/data-deletion') return handleDataDeletionRequest(event, deps);
-    if (method === 'POST' && path === '/start') return handleStart(event, deps);
-    if (method === 'GET' && path === '/callback') return handleCallback(event, deps);
-    if (method === 'GET' && path === '/status') return handleStatus(event, deps);
-    if (method === 'POST' && path === '/go-live') return handleGoLive(event, deps);
-    if (method === 'POST' && path === '/pause') return handleControl(event, deps, 'pause');
-    if (method === 'POST' && path === '/resume') return handleControl(event, deps, 'resume');
-    if (method === 'POST' && path === '/forget') return handleControl(event, deps, 'forget');
+    // Awaited, or a handler that rejects skips this catch and API Gateway
+    // answers with a bare 500 instead of the error page.
+    if (method === 'GET' && (path === '/' || path === '')) return await handleIndex();
+    if (method === 'GET' && path === '/privacy') return await policyPage('privacy');
+    if (method === 'GET' && path === '/terms') return await policyPage('terms');
+    if (method === 'GET' && path === '/data-deletion') return await policyPage('data-deletion');
+    if (method === 'POST' && path === '/deauthorize') return await handleDeauthorize(event, deps);
+    if (method === 'POST' && path === '/data-deletion') return await handleDataDeletionRequest(event, deps);
+    if (method === 'POST' && path === '/start') return await handleStart(event, deps);
+    if (method === 'GET' && path === '/callback') return await handleCallback(event, deps);
+    if (method === 'GET' && path === '/status') return await handleStatus(event, deps);
+    if (method === 'POST' && path === '/go-live') return await handleGoLive(event, deps);
+    if (method === 'POST' && path === '/pause') return await handleControl(event, deps, 'pause');
+    if (method === 'POST' && path === '/resume') return await handleControl(event, deps, 'resume');
+    if (method === 'POST' && path === '/forget') return await handleControl(event, deps, 'forget');
     return errorPage('Page not found.', 404);
   } catch (error) {
     console.error(JSON.stringify({ msg: 'request failed', path, error: error.message }));

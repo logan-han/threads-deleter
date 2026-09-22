@@ -36,6 +36,7 @@ const makeDeps = ({ job = null } = {}) => ({
 });
 
 beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
 
 describe('GET /', () => {
   it('renders the connect form', async () => {
@@ -310,6 +311,17 @@ describe('GET /status', () => {
 
     expect(response.body).toContain('Last error');
     expect(response.body).toContain('Invalid &lt;token&gt;');
+  });
+
+  it('shows the error page when the store fails, rather than a bare 500', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deps = makeDeps();
+    deps.store.getJob.mockRejectedValue(new Error('The provisioned throughput for the table was exceeded.'));
+
+    const response = await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toContain('Something went wrong: The provisioned throughput for the table was exceeded.');
   });
 });
 
@@ -718,7 +730,6 @@ describe('deployment configuration', () => {
 
   afterEach(() => {
     Object.assign(config, saved);
-    vi.restoreAllMocks();
   });
 
   it('switches connecting off, and says why, without app credentials', async () => {
