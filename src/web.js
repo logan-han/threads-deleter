@@ -491,6 +491,8 @@ const handleGoLive = async (event, deps) => {
   await deps.store.updateJob(found.job.userId, {
     dryRun: false,
     state: deps.store.STATES.active,
+    // Only a preview shows the sample, so its post text need not outlive it.
+    preview: [],
     lastMessage: 'Deleting for real now. The first batch is running.',
   });
   await (deps.runNow || runNow)(found.job.userId);

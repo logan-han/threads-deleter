@@ -472,6 +472,15 @@ describe('POST /go-live', () => {
     expect(response.statusCode).toBe(302);
   });
 
+  it('drops the preview sample, and the post text in it', async () => {
+    const deps = makeDeps({
+      job: { userId: '555', state: 'previewed', mode: 'all', dryRun: true, preview: [{ id: '1', text: 'hello' }] },
+    });
+    await web.handler(event('POST', '/go-live', { body: { s: sign({ u: '555' }) } }), deps);
+
+    expect(deps.store.updateJob).toHaveBeenCalledWith('555', expect.objectContaining({ preview: [] }));
+  });
+
   it('refuses without a valid token', async () => {
     const deps = makeDeps();
     const response = await web.handler(event('POST', '/go-live', { body: { s: 'bad' } }), deps);

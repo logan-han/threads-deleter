@@ -20,8 +20,9 @@
       <li>A Threads access token, so deletions can run while you are away.</li>
       <li>The job you set up: whether it covers every post or only posts older than a date, any text filter, and whether it is a dry run.</li>
       <li>Counts of what has been deleted, skipped and scanned, and the IDs of posts the API refused to delete so they are not retried forever.</li>
+      <li>For a dry run, a sample of up to 50 matching posts (ID, date, link and the first 140 characters of text), so the status page can show what would be removed. It is dropped when you go live.</li>
     </ul>
-    <p>Post text is never stored. Posts are read, matched against your filter, deleted or skipped, and discarded.</p>
+    <p>Apart from that sample, post text is never stored. Posts are read, matched against your filter, deleted or skipped, and discarded.</p>
     <p>While you connect, your browser keeps a cookie for up to an hour that ties the Threads sign-in to it. It holds only a random value.</p>
 
     <h2>What it is used for</h2>
