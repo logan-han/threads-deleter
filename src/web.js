@@ -57,6 +57,28 @@ const redirectUriFor = (event) => {
   return `https://${host}/callback`;
 };
 
+// The signed state proves the options came from /start, not which browser asked
+// for them, so a cookie holding its nonce ties the callback to that browser.
+const NONCE_COOKIE = '__Host-oauth_state';
+const NONCE_MAX_AGE = 3600;
+
+// Payload format 2.0 moves the Cookie header into event.cookies.
+const readCookie = (event, name) => {
+  const pairs = event.cookies || String((event.headers || {}).cookie || '').split(';');
+  const prefix = `${name}=`;
+  const found = pairs.map((pair) => pair.trim()).find((pair) => pair.startsWith(prefix));
+  return found ? found.slice(prefix.length) : null;
+};
+
+// Browsers send Origin with a form post, so a mismatch means another site
+// submitted the form and chose what would be deleted.
+const fromThisSite = (event) => {
+  const headers = event.headers || {};
+  if (headers.origin) return headers.origin === `https://${headers.host || headers.Host}`;
+  const site = headers['sec-fetch-site'];
+  return !site || site === 'same-origin' || site === 'none';
+};
+
 const statusLink = (userId) => `/status?s=${encodeURIComponent(sign({ u: String(userId) }))}`;
 
 const jobFromToken = async (event, store) => {
@@ -116,6 +138,7 @@ const policyPage = (name) => html(render(name, { updated: 'September 2026' }));
 
 const handleStart = (event, { threads }) => {
   if (!configured()) return errorPage('This deployment is missing its Threads app credentials.', 503);
+  if (!fromThisSite(event)) return errorPage('Connect from this site\'s own form.', 403);
 
   const form = parseForm(event);
   if (form.confirm !== 'yes') {
@@ -140,16 +163,20 @@ const handleStart = (event, { threads }) => {
     return errorPage('Choose at least one of posts or replies to remove.');
   }
 
+  const nonce = crypto.randomBytes(16).toString('base64url');
   const state = sign({
     mode,
     targets,
     cutoffIso,
     keyword: (form.keyword || '').trim().slice(0, 100) || undefined,
     dryRun: form.dryRun === 'yes',
-    nonce: Math.random().toString(36).slice(2, 10),
+    nonce,
   });
 
-  return redirect(threads.authorizeUrl(state, redirectUriFor(event)));
+  return {
+    ...redirect(threads.authorizeUrl(state, redirectUriFor(event))),
+    cookies: [`${NONCE_COOKIE}=${nonce}; Path=/; Max-Age=${NONCE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`],
+  };
 };
 
 // Same filters means the same job carrying on, so its tally belongs to it.
@@ -187,6 +214,9 @@ const handleCallback = async (event, deps) => {
 
   const options = verify(query.state);
   if (!options) return errorPage('The authorisation state was missing or invalid. Start again.');
+  if (!options.nonce || readCookie(event, NONCE_COOKIE) !== options.nonce) {
+    return errorPage('This connection was started in a different browser or has expired. Start again.');
+  }
 
   const shortLived = await threads.exchangeCode(
     String(query.code).replace(/#_$/, ''),

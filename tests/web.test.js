@@ -7,13 +7,22 @@ const { sign, verify } = require('../src/sign.js');
 
 const NOW = Date.UTC(2026, 8, 17);
 
-const event = (method, path, { body, query, headers } = {}) => ({
+const event = (method, path, { body, query, headers, cookies } = {}) => ({
   rawPath: path,
   requestContext: { http: { method } },
   queryStringParameters: query,
   headers: { host: 'deleter.example.test', ...headers },
+  cookies,
   body: body ? new URLSearchParams(body).toString() : undefined,
   isBase64Encoded: false,
+});
+
+const NONCE = 'nonce-from-start';
+
+// A callback from the browser that started the flow, so it carries the nonce cookie.
+const callbackEvent = (options, query = {}) => event('GET', '/callback', {
+  query: { code: 'c', state: sign({ ...options, nonce: NONCE }), ...query },
+  cookies: [`__Host-oauth_state=${NONCE}`],
 });
 
 const makeDeps = ({ job = null } = {}) => ({
@@ -126,6 +135,42 @@ describe('POST /start', () => {
     expect(response.statusCode).toBe(302);
     expect(verify(deps.threads.authorizeUrl.mock.calls[0][0]).targets).toEqual(['posts']);
   });
+
+  it('ties the flow to this browser with a cookie holding the signed nonce', async () => {
+    const deps = makeDeps();
+    const response = await web.handler(
+      event('POST', '/start', { body: { mode: 'all', confirm: 'yes', includePosts: 'yes' } }),
+      deps
+    );
+
+    const { nonce } = verify(deps.threads.authorizeUrl.mock.calls[0][0]);
+    expect(nonce).toMatch(/^[\w-]{22}$/);
+    expect(response.cookies).toEqual([
+      `__Host-oauth_state=${nonce}; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax`,
+    ]);
+  });
+
+  it('refuses a form that another site submitted', async () => {
+    const deps = makeDeps();
+    const body = { mode: 'all', confirm: 'yes', includePosts: 'yes' };
+
+    const posted = await web.handler(event('POST', '/start', { body, headers: { origin: 'https://attacker.example' } }), deps);
+    const unlabelled = await web.handler(event('POST', '/start', { body, headers: { 'sec-fetch-site': 'cross-site' } }), deps);
+
+    expect(posted.statusCode).toBe(403);
+    expect(unlabelled.statusCode).toBe(403);
+    expect(deps.threads.authorizeUrl).not.toHaveBeenCalled();
+  });
+
+  it('accepts its own form', async () => {
+    const body = { mode: 'all', confirm: 'yes', includePosts: 'yes' };
+
+    const posted = await web.handler(event('POST', '/start', { body, headers: { origin: 'https://deleter.example.test' } }), makeDeps());
+    const fetched = await web.handler(event('POST', '/start', { body, headers: { 'sec-fetch-site': 'same-origin' } }), makeDeps());
+
+    expect(posted.statusCode).toBe(302);
+    expect(fetched.statusCode).toBe(302);
+  });
 });
 
 describe('GET /callback', () => {
@@ -149,12 +194,8 @@ describe('GET /callback', () => {
 
   it('exchanges the code, stores the job and redirects to the status link', async () => {
     const deps = makeDeps();
-    const state = sign({ mode: 'all', dryRun: true });
 
-    const response = await web.handler(
-      event('GET', '/callback', { query: { code: 'the-code#_', state } }),
-      deps
-    );
+    const response = await web.handler(callbackEvent({ mode: 'all', dryRun: true }, { code: 'the-code#_' }), deps);
 
     expect(deps.threads.exchangeCode).toHaveBeenCalledWith('the-code', 'https://deleter.example.test/callback');
     expect(deps.threads.exchangeLongLived).toHaveBeenCalledWith('short');
@@ -176,10 +217,7 @@ describe('GET /callback', () => {
 
   it('preserves cumulative counters across a reconnect', async () => {
     const deps = makeDeps({ job: { userId: '555', mode: 'all', targets: ['posts'], deletedCount: 120, skippedCount: 3, skipIds: ['x'], createdAt: 1 } });
-    await web.handler(
-      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }),
-      deps
-    );
+    await web.handler(callbackEvent({ mode: 'all' }), deps);
 
     expect(deps.store.putJob.mock.calls[0][0]).toMatchObject({
       deletedCount: 120,
@@ -187,6 +225,33 @@ describe('GET /callback', () => {
       skipIds: ['x'],
       createdAt: 1,
     });
+  });
+
+  it('refuses a callback from a browser that did not start the flow', async () => {
+    // Otherwise anyone could start a live job at /start and send its Threads link to someone else.
+    const deps = makeDeps();
+    const requests = [
+      { ...callbackEvent({ mode: 'all' }), cookies: undefined },
+      { ...callbackEvent({ mode: 'all' }), cookies: ['__Host-oauth_state=another-flow'] },
+      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) }, cookies: ['__Host-oauth_state='] }),
+    ];
+
+    for (const request of requests) {
+      const response = await web.handler(request, deps);
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toContain('started in a different browser');
+    }
+    expect(deps.threads.exchangeCode).not.toHaveBeenCalled();
+  });
+
+  it('also reads the nonce from a Cookie header', async () => {
+    const deps = makeDeps();
+    const request = { ...callbackEvent({ mode: 'all' }), cookies: undefined };
+    request.headers = { ...request.headers, cookie: `theme=dark; __Host-oauth_state=${NONCE}` };
+
+    await web.handler(request, deps);
+
+    expect(deps.threads.exchangeCode).toHaveBeenCalled();
   });
 
   it('refuses a callback with no authorisation code', async () => {
@@ -207,17 +272,14 @@ describe('GET /callback', () => {
     const deps = makeDeps();
     deps.threads.getMe.mockResolvedValue({ username: 'logan' });
 
-    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+    await web.handler(callbackEvent({ mode: 'all' }), deps);
 
     expect(deps.store.putJob.mock.calls[0][0].userId).toBe('555');
   });
 
   it('previews inline, so the status page opens on real results', async () => {
     const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: true } });
-    await web.handler(
-      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all', dryRun: true }) } }),
-      deps
-    );
+    await web.handler(callbackEvent({ mode: 'all', dryRun: true }), deps);
 
     expect(deps.runJob).toHaveBeenCalledWith(
       expect.objectContaining({ userId: '555' }),
@@ -228,7 +290,7 @@ describe('GET /callback', () => {
 
   it('hands a live job to the worker instead of running it inline', async () => {
     const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: false } });
-    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+    await web.handler(callbackEvent({ mode: 'all' }), deps);
 
     expect(deps.runNow).toHaveBeenCalledWith('555');
     expect(deps.runJob).not.toHaveBeenCalled();
@@ -238,10 +300,7 @@ describe('GET /callback', () => {
     const deps = makeDeps({ job: { userId: '555', mode: 'all', dryRun: true } });
     deps.runJob.mockRejectedValue(new Error('Threads is down'));
 
-    const response = await web.handler(
-      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all', dryRun: true }) } }),
-      deps
-    );
+    const response = await web.handler(callbackEvent({ mode: 'all', dryRun: true }), deps);
 
     expect(response.statusCode).toBe(302);
     expect(deps.store.updateJob).toHaveBeenCalledWith('555', {
@@ -424,10 +483,7 @@ describe('POST /go-live', () => {
 describe('reconnecting over an existing job', () => {
   const connect = async (existing, dryRun) => {
     const deps = makeDeps({ job: existing });
-    await web.handler(
-      event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all', targets: ['posts'], dryRun }) } }),
-      deps
-    );
+    await web.handler(callbackEvent({ mode: 'all', targets: ['posts'], dryRun }), deps);
     return deps.store.putJob.mock.calls[0][0];
   };
 
@@ -449,12 +505,7 @@ describe('reconnecting over an existing job', () => {
       },
     });
     await web.handler(
-      event('GET', '/callback', {
-        query: {
-          code: 'c',
-          state: sign({ mode: 'older_than', cutoffIso: '2026-03-01T00:00:00.000Z', targets: ['posts', 'replies'] }),
-        },
-      }),
+      callbackEvent({ mode: 'older_than', cutoffIso: '2026-03-01T00:00:00.000Z', targets: ['posts', 'replies'] }),
       deps
     );
 
@@ -748,7 +799,7 @@ describe('deployment configuration', () => {
     const deps = makeDeps();
 
     await web.handler(start(), deps);
-    await web.handler(event('GET', '/callback', { query: { code: 'c', state: sign({ mode: 'all' }) } }), deps);
+    await web.handler(callbackEvent({ mode: 'all' }), deps);
 
     expect(deps.threads.authorizeUrl.mock.calls[0][1]).toBe('https://threads.han.life/callback');
     expect(deps.threads.exchangeCode).toHaveBeenCalledWith('c', 'https://threads.han.life/callback');
