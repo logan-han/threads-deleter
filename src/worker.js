@@ -181,6 +181,7 @@ const runJob = async (job, overrides = {}) => {
   let deleted = 0;
   let skipped = 0;
   let rateLimited = false;
+  let interrupted = false;
   let lastError = null;
 
   for (const post of candidates) {
@@ -204,6 +205,7 @@ const runJob = async (job, overrides = {}) => {
       }
 
       lastError = error.message;
+      interrupted = true;
       break;
     }
   }
@@ -211,8 +213,9 @@ const runJob = async (job, overrides = {}) => {
   // A pass that reached the end of every collection has seen everything there
   // is; without this the job stays "working through it" until a later pass
   // happens to find nothing. A collection it could not read does not count as
-  // seen, so a permission problem must never look like completion.
-  const finished = exhausted && !rateLimited && unreadable.length === 0;
+  // seen, and a pass an error cut short left some of what it saw, so neither
+  // may look like completion.
+  const finished = exhausted && !rateLimited && !interrupted && unreadable.length === 0;
 
   const patch = {
     state: finished ? store.STATES.done : job.state,

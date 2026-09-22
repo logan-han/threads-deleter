@@ -481,6 +481,23 @@ describe('finishing the work', () => {
     expect(deps.updates[0].patch).toMatchObject({ state: 'active', lastError: 'socket hang up', skipIds: [] });
   });
 
+  it('stays active when an unexpected failure cut the last page short', async () => {
+    let n = 0;
+    const deps = makeDeps({
+      pages: [{ data: ['1', '2', '3'].map((id) => post(id, '2025-01-01T00:00:00+0000')) }],
+      deleteImpl: vi.fn(async () => {
+        n += 1;
+        if (n === 2) throw new Error('Threads returned 500');
+        return { success: true };
+      }),
+    });
+
+    await runJob(baseJob, deps);
+
+    expect(deps.updates[0].patch.state).toBe('active');
+    expect(deps.updates[0].patch.lastMessage).toMatch(/More to go/);
+  });
+
   it('says so when the only posts it reached this pass were undeletable', async () => {
     const permanent = Object.assign(new Error('Media type is not supported'), {
       isPermanent: true,
