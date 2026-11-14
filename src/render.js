@@ -13,6 +13,11 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+const readableDate = (iso) =>
+  new Date(iso).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+  });
+
 // Views, the shared stylesheet and the head partial are read once per container.
 const load = (file) => {
   if (!cache.has(file)) {
@@ -33,4 +38,4 @@ const render = (name, values = {}) => {
   return fill(load(`${name}.html`), { head, rail, ...values });
 };
 
-module.exports = { escapeHtml, render };
+module.exports = { escapeHtml, readableDate, render };

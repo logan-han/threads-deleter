@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 const web = require('../src/web.js');
 const { sign, verify } = require('../src/sign.js');
+const statusPage = require('../src/status-page.js');
 
 const NOW = Date.UTC(2026, 8, 17);
 
@@ -868,18 +869,18 @@ describe('deployment configuration', () => {
 
 describe('describeJob', () => {
   it('names what a job covers in words', () => {
-    expect(web.describeJob({ targets: ['replies'] })).toBe('replies');
-    expect(web.describeJob({ targets: ['posts', 'replies'], keyword: 'crypto' }))
+    expect(statusPage.describeJob({ targets: ['replies'] })).toBe('replies');
+    expect(statusPage.describeJob({ targets: ['posts', 'replies'], keyword: 'crypto' }))
       .toBe('posts and replies containing "crypto"');
-    expect(web.describeJob({ mode: 'older_than', cutoffIso: '2026-03-01T00:00:00.000Z' }))
+    expect(statusPage.describeJob({ mode: 'older_than', cutoffIso: '2026-03-01T00:00:00.000Z' }))
       .toBe('posts older than 1 March 2026');
   });
 });
 
 describe('sinceText', () => {
   it('reads naturally from seconds to hours', () => {
-    const ago = (ms) => web.sinceText(NOW - ms, NOW);
-    expect(web.sinceText(null, NOW)).toBe('not yet');
+    const ago = (ms) => statusPage.sinceText(NOW - ms, NOW);
+    expect(statusPage.sinceText(null, NOW)).toBe('not yet');
     expect(ago(20 * 1000)).toBe('just now');
     expect(ago(60 * 1000)).toBe('1 minute ago');
     expect(ago(45 * 60 * 1000)).toBe('45 minutes ago');
