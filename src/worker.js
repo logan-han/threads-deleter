@@ -276,4 +276,4 @@ const handler = async (event) => {
   return { jobs: jobs.length, results };
 };
 
-module.exports = { collectCandidates, ensureFreshToken, handler, matchesFilters, runJob, targetsOf };
+module.exports = { ensureFreshToken, handler, matchesFilters, runJob, targetsOf };

@@ -138,9 +138,6 @@ const listMedia = ({ userId, token, source = 'posts', limit = config.pageSize, u
   });
 };
 
-const listPosts = (args) => listMedia({ ...args, source: 'posts' });
-const listReplies = (args) => listMedia({ ...args, source: 'replies' });
-
 const deletePost = (mediaId, token) =>
   request(`${config.graphHost}/v1.0/${mediaId}`, {
     method: 'DELETE',
@@ -174,7 +171,5 @@ module.exports = {
   getMe,
   getMedia,
   listMedia,
-  listPosts,
-  listReplies,
   refreshLongLived,
 };

@@ -258,7 +258,7 @@ const handleCallback = async (event, deps) => {
   const job = await store.getJob(userId);
   if (job && job.dryRun) {
     try {
-      await (deps.runJob || runJob)(job, { store, threads, now });
+      await deps.runJob(job, { store, threads, now });
     } catch (error) {
       // A failed preview must never block connecting.
       await store.updateJob(userId, {
@@ -266,7 +266,7 @@ const handleCallback = async (event, deps) => {
       });
     }
   } else {
-    await (deps.runNow || runNow)(userId);
+    await deps.runNow(userId);
   }
 
   return redirect(statusLink(userId));
@@ -316,7 +316,7 @@ const nextPassRow = (job, checked) => {
     // Promising a pass in four hours is misleading when that pass has nothing
     // to spend; what is actually being waited on is the allowance.
     ? 'Waiting on the allowance, then <strong>deleting resumes</strong>'
-    : `Next pass <strong>within ${Number(config.runEveryHours)} hours</strong>`);
+    : `Next pass <strong>within ${config.runEveryHours} hours</strong>`);
 
   return `<div class="nextpass${idle ? ' idle' : ''}">`
     + `<span class="when">${CLOCK}<span>${label}</span></span>`
@@ -524,7 +524,7 @@ const handleGoLive = async (event, deps) => {
     preview: [],
     lastMessage: 'Deleting for real now. The first batch is running.',
   });
-  await (deps.runNow || runNow)(found.job.userId);
+  await deps.runNow(found.job.userId);
 
   return redirect(statusLink(found.job.userId));
 };
@@ -590,7 +590,7 @@ const handler = async (event, overrides = {}) => {
   try {
     // Awaited, or a handler that rejects skips this catch and API Gateway
     // answers with a bare 500 instead of the error page.
-    if (method === 'GET' && (path === '/' || path === '')) return await handleIndex();
+    if (method === 'GET' && path === '/') return await handleIndex();
     if (method === 'GET' && path === '/privacy') return await policyPage('privacy');
     if (method === 'GET' && path === '/terms') return await policyPage('terms');
     if (method === 'GET' && path === '/data-deletion') return await policyPage('data-deletion');
@@ -610,4 +610,4 @@ const handler = async (event, overrides = {}) => {
   }
 };
 
-module.exports = { handler, describeJob, parseForm, readableDate, redirectUriFor, sinceText };
+module.exports = { handler, describeJob, sinceText };

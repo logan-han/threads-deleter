@@ -75,10 +75,10 @@ describe('getDeleteQuota', () => {
   });
 });
 
-describe('listPosts', () => {
+describe('listMedia for posts', () => {
   it('passes the paging and until filters through', async () => {
     const spy = mockFetch(200, { data: [] });
-    await threads.listPosts({ userId: '7', token: 'tok', limit: 50, until: 1700000000, after: 'cur' });
+    await threads.listMedia({ userId: '7', token: 'tok', source: 'posts', limit: 50, until: 1700000000, after: 'cur' });
 
     const url = new URL(spy.mock.calls[0][0]);
     expect(url.pathname).toBe('/v1.0/7/threads');
@@ -89,7 +89,7 @@ describe('listPosts', () => {
 
   it('omits empty optional filters', async () => {
     const spy = mockFetch(200, { data: [] });
-    await threads.listPosts({ userId: '7', token: 'tok' });
+    await threads.listMedia({ userId: '7', token: 'tok', source: 'posts' });
 
     const url = new URL(spy.mock.calls[0][0]);
     expect(url.searchParams.has('until')).toBe(false);
@@ -159,10 +159,10 @@ describe('getMe', () => {
   });
 });
 
-describe('listReplies', () => {
+describe('listMedia for replies', () => {
   it('reads the replies collection, which is separate from posts', async () => {
     const spy = mockFetch(200, { data: [] });
-    await threads.listReplies({ userId: '555', token: 'tok' });
+    await threads.listMedia({ userId: '555', token: 'tok', source: 'replies' });
 
     expect(new URL(spy.mock.calls[0][0]).pathname).toBe('/v1.0/555/replies');
   });
