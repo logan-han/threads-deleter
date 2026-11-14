@@ -47,6 +47,10 @@ const makeDeps = ({ job = null, texts = {} } = {}) => ({
   },
 });
 
+// User 555's status page, requested with the signed link a status redirect carries.
+const statusEvent = () => event('GET', '/status', { query: { s: sign({ u: '555' }) } });
+const statusFor = async (job) => (await web.handler(statusEvent(), makeDeps({ job }))).body;
+
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
@@ -332,7 +336,7 @@ describe('GET /status', () => {
       lastMessage: 'Deleted 40 post(s) this run.',
     };
     const response = await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
+      statusEvent(),
       makeDeps({ job })
     );
 
@@ -346,7 +350,7 @@ describe('GET /status', () => {
   it('escapes job values into the page', async () => {
     const job = { userId: '555', username: '<script>x</script>', state: 'active', mode: 'all' };
     const response = await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
+      statusEvent(),
       makeDeps({ job })
     );
 
@@ -360,14 +364,14 @@ describe('GET /status', () => {
   });
 
   it('treats a signed link to an erased job as invalid', async () => {
-    const response = await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps());
+    const response = await web.handler(statusEvent(), makeDeps());
     expect(response.statusCode).toBe(404);
   });
 
   it('shows the last error, escaped', async () => {
     const job = { userId: '555', state: 'active', mode: 'all', lastError: 'Invalid <token>' };
     const response = await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
+      statusEvent(),
       makeDeps({ job })
     );
 
@@ -380,7 +384,7 @@ describe('GET /status', () => {
     const deps = makeDeps();
     deps.store.getJob.mockRejectedValue(new Error('The provisioned throughput for the table was exceeded.'));
 
-    const response = await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+    const response = await web.handler(statusEvent(), deps);
 
     expect(response.statusCode).toBe(500);
     expect(response.body).toContain('Something went wrong: The provisioned throughput for the table was exceeded.');
@@ -435,9 +439,6 @@ describe('unknown routes', () => {
 });
 
 describe('status actions follow the state', () => {
-  const statusFor = async (job) =>
-    (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job }))).body;
-
   it('offers a way to go live after a dry run, and no re-check', async () => {
     const body = await statusFor({ userId: '555', state: 'previewed', mode: 'all', dryRun: true });
     expect(body).toContain('/go-live');
@@ -553,7 +554,7 @@ describe('preview shows what would go', () => {
 
   it('lists the matched items with dates and links', async () => {
     const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job: previewJob, texts })
+      statusEvent(), makeDeps({ job: previewJob, texts })
     )).body;
 
     expect(body).toContain('What would be removed');
@@ -566,7 +567,7 @@ describe('preview shows what would go', () => {
 
   it('reads the text of each post live with the job token, since none is stored', async () => {
     const deps = makeDeps({ job: previewJob, texts });
-    await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+    await web.handler(statusEvent(), deps);
 
     expect(deps.threads.getMedia).toHaveBeenCalledTimes(2);
     expect(deps.threads.getMedia).toHaveBeenCalledWith('1', 'long-token', { signal: expect.any(AbortSignal) });
@@ -576,7 +577,7 @@ describe('preview shows what would go', () => {
     const deps = makeDeps({ job: previewJob });
     deps.threads.getMedia.mockRejectedValue(new Error('Object with ID 1 does not exist'));
 
-    const body = (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps)).body;
+    const body = (await web.handler(statusEvent(), deps)).body;
 
     expect(body).toContain('<em>text unavailable</em>');
     expect(body).toContain('4 March 2025');
@@ -596,7 +597,7 @@ describe('preview shows what would go', () => {
       return { id, text: 'x' };
     });
 
-    await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps);
+    await web.handler(statusEvent(), deps);
 
     expect(deps.threads.getMedia).toHaveBeenCalledTimes(30);
     expect(peak).toBe(8);
@@ -604,7 +605,7 @@ describe('preview shows what would go', () => {
 
   it('says how many of the total are shown', async () => {
     const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job: previewJob })
+      statusEvent(), makeDeps({ job: previewJob })
     )).body;
     expect(body).toContain('A sample of 2, from 40 matches');
   });
@@ -612,7 +613,7 @@ describe('preview shows what would go', () => {
   it('escapes post text into the list', async () => {
     const job = { ...previewJob, preview: [{ id: '1', source: 'posts', timestamp: null }] };
     const body = (await web.handler(
-      event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job, texts: { 1: '<script>bad</script>' } })
+      statusEvent(), makeDeps({ job, texts: { 1: '<script>bad</script>' } })
     )).body;
     expect(body).not.toContain('<script>bad</script>');
     expect(body).toContain('&lt;script&gt;');
@@ -620,7 +621,7 @@ describe('preview shows what would go', () => {
 
   it('shows no list, and reads nothing from Threads, for a live job', async () => {
     const deps = makeDeps({ job: { ...previewJob, state: 'active', dryRun: false } });
-    const body = (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), deps)).body;
+    const body = (await web.handler(statusEvent(), deps)).body;
 
     expect(body).not.toContain('What would be removed');
     expect(deps.threads.getMedia).not.toHaveBeenCalled();
@@ -634,7 +635,7 @@ describe('preview layout and paging', () => {
   }));
 
   const render = async (count) => (await web.handler(
-    event('GET', '/status', { query: { s: sign({ u: '555' }) } }),
+    statusEvent(),
     makeDeps({ job: { userId: '555', state: 'previewed', mode: 'all', dryRun: true, previewCount: count, preview: many(count) } })
   )).body;
 
@@ -665,9 +666,6 @@ describe('preview layout and paging', () => {
 });
 
 describe('the job panel shows only figures that carry information', () => {
-  const statusFor = async (job) =>
-    (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job }))).body;
-
   it('leads a dry run with what would be removed', async () => {
     const body = await statusFor({
       userId: '555', username: 'logan', state: 'previewed', mode: 'all', dryRun: true,
@@ -762,9 +760,6 @@ describe('the job panel shows only figures that carry information', () => {
 });
 
 describe('where the actions sit', () => {
-  const statusFor = async (job) =>
-    (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job }))).body;
-
   const previewed = {
     userId: '555', state: 'previewed', mode: 'all', dryRun: true, previewCount: 2,
     preview: [
@@ -802,9 +797,6 @@ describe('where the actions sit', () => {
 });
 
 describe('each state explains itself', () => {
-  const statusFor = async (job) =>
-    (await web.handler(event('GET', '/status', { query: { s: sign({ u: '555' }) } }), makeDeps({ job }))).body;
-
   it('tells a paused job how to carry on, and offers resume instead of pause', async () => {
     const body = await statusFor({ userId: '555', state: 'paused', mode: 'all' });
     expect(body).toContain('Paused until you resume it');

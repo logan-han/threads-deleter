@@ -8,6 +8,7 @@ const { matchesFilters, runJob } = worker;
 
 const NOW = Date.UTC(2026, 8, 17);
 const DAY = 24 * 60 * 60 * 1000;
+const STATES = { active: 'active', paused: 'paused', done: 'done', previewed: 'previewed', error: 'error' };
 
 const post = (id, isoDate, text = '') => ({ id, timestamp: isoDate, text });
 
@@ -19,7 +20,7 @@ const makeDeps = ({ quota = { used: 0, total: 100, remaining: 100 }, pages = [[]
     updates,
     now: NOW,
     store: {
-      STATES: { active: 'active', paused: 'paused', done: 'done', previewed: 'previewed', error: 'error' },
+      STATES,
       updateJob: vi.fn(async (userId, patch) => {
         updates.push({ userId, patch });
         return patch;
@@ -302,7 +303,7 @@ describe('posts and replies are separate collections', () => {
       calls,
       now: NOW,
       store: {
-        STATES: { active: 'active', paused: 'paused', done: 'done', previewed: 'previewed', error: 'error' },
+        STATES,
         updateJob: vi.fn(async () => ({})),
       },
       threads: {
@@ -370,7 +371,7 @@ describe('a collection the app cannot read', () => {
   const deps = (impl) => ({
     now: NOW,
     store: {
-      STATES: { active: 'active', paused: 'paused', done: 'done', previewed: 'previewed', error: 'error' },
+      STATES,
       updateJob: vi.fn(async () => ({})),
     },
     threads: {
