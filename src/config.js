@@ -10,8 +10,6 @@ module.exports = {
   workerFunctionName: process.env.WORKER_FUNCTION_NAME || '',
   // How often the schedule fires, used to tell people when to expect a pass.
   runEveryHours: Number(process.env.RUN_EVERY_HOURS || 4),
-  // What Threads allows per account per rolling 24 hours.
-  deleteQuotaPerDay: num(process.env.DELETE_QUOTA_PER_DAY, 100),
   appId: process.env.THREADS_APP_ID || '',
   appSecret: process.env.THREADS_APP_SECRET || '',
   // Signs OAuth state and status-page tokens. Falls back to the app secret so a

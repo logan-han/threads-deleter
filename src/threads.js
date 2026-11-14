@@ -106,6 +106,9 @@ const getMe = (token) =>
     query: { fields: 'id,username', access_token: token },
   });
 
+// Meta's documented allowance: 100 deletions per account per rolling 24 hours.
+const DAILY_DELETE_QUOTA = 100;
+
 // Meta exposes the live deletion quota, so the worker never has to guess.
 const getDeleteQuota = async (userId, token) => {
   const payload = await request(`${config.graphHost}/v1.0/${userId}/threads_publishing_limit`, {
@@ -114,7 +117,7 @@ const getDeleteQuota = async (userId, token) => {
 
   const entry = (payload.data && payload.data[0]) || {};
   const used = Number(entry.delete_quota_usage || 0);
-  const total = Number((entry.delete_config && entry.delete_config.quota_total) || 0) || 100;
+  const total = Number((entry.delete_config && entry.delete_config.quota_total) || 0) || DAILY_DELETE_QUOTA;
 
   return { used, total, remaining: Math.max(0, total - used) };
 };
@@ -162,6 +165,7 @@ const authorizeUrl = (state, redirectUri) => {
 };
 
 module.exports = {
+  DAILY_DELETE_QUOTA,
   ThreadsApiError,
   authorizeUrl,
   deletePost,

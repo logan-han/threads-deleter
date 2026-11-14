@@ -2,6 +2,7 @@
 
 const config = require('./config.js');
 const { escapeHtml, readableDate, render } = require('./render.js');
+const { DAILY_DELETE_QUOTA } = require('./threads.js');
 
 const describeJob = (job) => {
   const targets = Array.isArray(job.targets) && job.targets.length ? job.targets : ['posts'];
@@ -13,10 +14,19 @@ const describeJob = (job) => {
   return `${what}${when}${keyword}`;
 };
 
+// The allowance a job last recorded. Before its first pass it has recorded
+// none, so it assumes Meta's documented cap.
+const quotaOf = (job) => ({
+  used: Number(job.quotaUsed || 0),
+  total: Number(job.quotaTotal || DAILY_DELETE_QUOTA),
+});
+
 // Threads counts deletions over a rolling 24 hours rather than resetting at
 // midnight, so a spent allowance comes back gradually rather than all at once.
-const spentAllowance = (job) =>
-  Number(job.quotaUsed || 0) >= Number(job.quotaTotal || 100);
+const spentAllowance = (job) => {
+  const { used, total } = quotaOf(job);
+  return used >= total;
+};
 
 const nextRunHint = (job) => {
   if (job.state === 'done') return 'Posts already removed stay removed.';
@@ -159,7 +169,7 @@ const previewList = (job, primaryAction) => {
       <span class="hint" id="pageLabel"></span>
       <button type="button" class="quiet" id="next">Next</button>
     </div>
-    ${primaryAction ? `<div class="golive"><p class="hint">Going live deletes these permanently, ${Number(job.quotaTotal || 100)} a day, until the backlog is clear. It cannot be undone.</p>${primaryAction}</div>` : ''}
+    ${primaryAction ? `<div class="golive"><p class="hint">Going live deletes these permanently, ${quotaOf(job).total} a day, until the backlog is clear. It cannot be undone.</p>${primaryAction}</div>` : ''}
   </section>`;
 };
 
@@ -200,8 +210,7 @@ const statTiles = (job, quotaTotal) => {
 // Post text is never stored, so withText(job) resolves to the job with its
 // preview's text read live. Only a previewed job calls it.
 const renderStatus = async (job, token, now, withText) => {
-  const quotaTotal = Number(job.quotaTotal || 100);
-  const quotaUsed = Number(job.quotaUsed || 0);
+  const { used: quotaUsed, total: quotaTotal } = quotaOf(job);
   const stats = statTiles(job, quotaTotal);
 
   const checked = job.lastRunAt ? `Checked ${sinceText(job.lastRunAt, now)}.` : 'Not checked yet.';
