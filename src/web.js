@@ -26,6 +26,12 @@ const redirect = (location) => ({
   body: '',
 });
 
+const json = (value, status = 200) => ({
+  statusCode: status,
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(value),
+});
+
 const parseForm = (event) => {
   if (!event.body) return {};
   const raw = event.isBase64Encoded
@@ -39,20 +45,23 @@ const errorPage = (message, status = 400) =>
 
 const configured = () => Boolean(config.appId && config.appSecret && config.stateSecret);
 
+const hostOf = (event) => {
+  const headers = event.headers || {};
+  return headers.host || headers.Host;
+};
+
 // Meta demands the same redirect_uri on both the authorise and token calls.
 // Deriving it from the request host means the deployed URL needs no second
 // deploy pass; REDIRECT_URI overrides it when a custom domain is in front.
 const baseUrl = (event) => {
-  const headers = event.headers || {};
-  const host = headers.host || headers.Host;
+  const host = hostOf(event);
   if (!host) throw new Error('cannot determine this deployment\'s URL');
   return `https://${host}`;
 };
 
 const redirectUriFor = (event) => {
   if (config.redirectUri) return config.redirectUri;
-  const headers = event.headers || {};
-  const host = headers.host || headers.Host;
+  const host = hostOf(event);
   if (!host) throw new Error('cannot determine the callback URL for this request');
   return `https://${host}/callback`;
 };
@@ -74,7 +83,7 @@ const readCookie = (event, name) => {
 // submitted the form and chose what would be deleted.
 const fromThisSite = (event) => {
   const headers = event.headers || {};
-  if (headers.origin) return headers.origin === `https://${headers.host || headers.Host}`;
+  if (headers.origin) return headers.origin === `https://${hostOf(event)}`;
   const site = headers['sec-fetch-site'];
   return !site || site === 'same-origin' || site === 'none';
 };
@@ -553,26 +562,22 @@ const handleControl = async (event, { store, now }, action) => {
 // Threads calls this when someone removes the app; drop their record.
 const handleDeauthorize = async (event, { store }) => {
   const parsed = parseSignedRequest(parseForm(event).signed_request);
-  if (!parsed) return { statusCode: 400, headers: { 'content-type': 'application/json' }, body: '{"error":"bad signed_request"}' };
+  if (!parsed) return json({ error: 'bad signed_request' }, 400);
 
   await store.deleteJob(String(parsed.user_id));
-  return { statusCode: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' };
+  return json({ ok: true });
 };
 
 // Meta's data deletion callback wants a status URL and a confirmation code back.
 const handleDataDeletionRequest = async (event, { store }) => {
   const parsed = parseSignedRequest(parseForm(event).signed_request);
-  if (!parsed) return { statusCode: 400, headers: { 'content-type': 'application/json' }, body: '{"error":"bad signed_request"}' };
+  if (!parsed) return json({ error: 'bad signed_request' }, 400);
 
   const userId = String(parsed.user_id);
   await store.deleteJob(userId);
 
   const code = crypto.createHash('sha256').update(userId + '|' + config.stateSecret).digest('hex').slice(0, 16);
-  return {
-    statusCode: 200,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ url: `${baseUrl(event)}/data-deletion`, confirmation_code: code }),
-  };
+  return json({ url: `${baseUrl(event)}/data-deletion`, confirmation_code: code });
 };
 
 const handler = async (event, overrides = {}) => {
