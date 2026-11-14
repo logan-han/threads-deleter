@@ -107,6 +107,55 @@ const collectCandidates = async (job, token, wanted, { threads }) => {
   return { candidates: candidates.slice(0, wanted), scanned, pages, exhausted, unreadable };
 };
 
+// Deletes one post at a time. A rate limit or an unexpected error ends the
+// pass; a post Threads refuses for good is counted and appended to skipIds.
+const deletePass = async (candidates, token, threads, skipIds) => {
+  let deleted = 0;
+  let skipped = 0;
+  let rateLimited = false;
+  let interrupted = false;
+  let lastError = null;
+
+  for (const post of candidates) {
+    try {
+      await threads.deletePost(post.id, token);
+      deleted += 1;
+    } catch (error) {
+      if (error.isRateLimit) {
+        rateLimited = true;
+        lastError = error.message;
+        break;
+      }
+
+      if (error.isPermanent) {
+        // Undeletable posts stay at the top of the listing, so remember them or
+        // the job re-reads the same page on every run and never progresses.
+        skipped += 1;
+        skipIds.push(post.id);
+        lastError = error.message;
+        continue;
+      }
+
+      lastError = error.message;
+      interrupted = true;
+      break;
+    }
+  }
+
+  return { deleted, skipped, rateLimited, interrupted, lastError };
+};
+
+const liveMessage = ({ rateLimited, finished, deleted, skipped, total }) => {
+  if (rateLimited) return `Stopped early: Threads reported a rate limit after ${deleted} this run.`;
+  if (finished) {
+    return deleted > 0
+      ? `Removed the last ${deleted}. Nothing else matches, so this job is done.`
+      : 'Nothing else matches, so this job is done.';
+  }
+  if (deleted === 0 && skipped > 0) return `${skipped} could not be deleted and were left alone.`;
+  return `Deleted ${deleted} this run, ${total} in total. More to go.`;
+};
+
 const runJob = async (job, overrides = {}) => {
   const deps = {
     threads: overrides.threads || defaultThreads,
@@ -178,37 +227,7 @@ const runJob = async (job, overrides = {}) => {
   }
 
   const skipIds = [...(job.skipIds || [])];
-  let deleted = 0;
-  let skipped = 0;
-  let rateLimited = false;
-  let interrupted = false;
-  let lastError = null;
-
-  for (const post of candidates) {
-    try {
-      await threads.deletePost(post.id, token);
-      deleted += 1;
-    } catch (error) {
-      if (error.isRateLimit) {
-        rateLimited = true;
-        lastError = error.message;
-        break;
-      }
-
-      if (error.isPermanent) {
-        // Undeletable posts stay at the top of the listing, so remember them or
-        // the job re-reads the same page on every run and never progresses.
-        skipped += 1;
-        skipIds.push(post.id);
-        lastError = error.message;
-        continue;
-      }
-
-      lastError = error.message;
-      interrupted = true;
-      break;
-    }
-  }
+  const { deleted, skipped, rateLimited, interrupted, lastError } = await deletePass(candidates, token, threads, skipIds);
 
   // A pass that reached the end of every collection has seen everything there
   // is; without this the job stays "working through it" until a later pass
@@ -231,17 +250,7 @@ const runJob = async (job, overrides = {}) => {
 
   const total = Number(job.deletedCount || 0) + deleted;
 
-  if (rateLimited) {
-    patch.lastMessage = `Stopped early: Threads reported a rate limit after ${deleted} this run.`;
-  } else if (finished) {
-    patch.lastMessage = deleted > 0
-      ? `Removed the last ${deleted}. Nothing else matches, so this job is done.`
-      : 'Nothing else matches, so this job is done.';
-  } else if (deleted === 0 && skipped > 0) {
-    patch.lastMessage = `${skipped} could not be deleted and were left alone.`;
-  } else {
-    patch.lastMessage = `Deleted ${deleted} this run, ${total} in total. More to go.`;
-  }
+  patch.lastMessage = liveMessage({ rateLimited, finished, deleted, skipped, total });
 
   await store.updateJob(job.userId, patch);
 
